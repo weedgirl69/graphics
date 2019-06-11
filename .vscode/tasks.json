@@ -6,12 +6,10 @@
         {
             "label": "test",
             "type": "shell",
-            "command": "python",
+            "command": "python3.7",
             "args": [
                 "-m",
-                "pytest",
-                "tests",
-                "-rpP",
+                "tox",
             ],
             "presentation": {
                 "echo": true,
@@ -21,12 +19,21 @@
                 "showReuseMessage": false,
                 "clear": true
             },
+            "options": {
+                "env": {
+                    "PYTHONPATH": ""
+                }
+            },
             "windows": {
                 "options": {
                     "env": {
-                        "VK_LAYER_PATH": "C:\\VulkanSDK\\1.1.101.0\\Bin\\",
+                        "VK_LAYER_PATH": "C:\\VulkanSDK\\1.1.101.0\\Bin\\"
                     }
                 }
+            },
+            "group": {
+                "kind": "test",
+                "isDefault": true
             }
         }
     ]

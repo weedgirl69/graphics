@@ -1,184 +1,139 @@
-from enum import Enum, auto
-from vulkan import *
 import collections
+from enum import Enum, IntEnum
+from typing import Callable, Dict, List, NamedTuple, Sequence, Tuple
 
+import pyshaderc
+import vulkan as vk
+from vulkan import ffi
 
 INSTANCE_EXTENSIONS = ["VK_EXT_debug_utils"]
 INSTANCE_LAYERS = ["VK_LAYER_LUNARG_standard_validation"]
-BUFFER_TYPE = ffi.typeof("struct VkBuffer_T *")
-IMAGE_TYPE = ffi.typeof("struct VkImage_T *")
+DEVICE_EXTENSIONS = ["VK_KHR_bind_memory2"]
+
+
+class VulkanType:
+    BUFFER = ffi.typeof("struct VkBuffer_T *")
+    COMMAND_POOL = ffi.typeof("struct VkCommandPool_T *")
+    DEVICE_MEMORY = ffi.typeof("struct VkDeviceMemory_T *")
+    FRAMEBUFFER = ffi.typeof("struct VkFramebuffer_T *")
+    IMAGE = ffi.typeof("struct VkImage_T *")
+    IMAGE_VIEW = ffi.typeof("struct VkImageView_T *")
+    PIPELINE_LAYOUT = ffi.typeof("struct VkPipelineLayout_T *")
+    RENDER_PASS = ffi.typeof("struct VkRenderPass_T *")
 
 
 class MemoryType(Enum):
-    DeviceOptimal = auto()
-    Uploadable = auto()
-    Downloadable = auto()
-    LazilyAllocated = auto()
-
-
-class ImageLayout:
-    TRANSFER_SOURCE = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
-    TRANSFER_DESTINATION = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-
-
-class MemoryBuilder:
-    def __init__(self, app):
-        self.app = app
-        self.memory_type_index_to_byte_count = collections.defaultdict(int)
-        self.buffers = []
-        self.images = []
-        self.resources = {BUFFER_TYPE: self.buffers, IMAGE_TYPE: self.images}
-        self.resource_to_memory_type_index_and_byte_offset = {}
-
-    def add(self, resource, memory_type: MemoryType):
-        get_memory_requirements = {
-            BUFFER_TYPE: vkGetBufferMemoryRequirements,
-            IMAGE_TYPE: vkGetImageMemoryRequirements,
-        }
-
-        resource_type = ffi.typeof(resource)
-
-        memory_requirements = get_memory_requirements[resource_type](
-            self.app.device, resource
-        )
-        memory_type_index = self._select_memory_type_index(
-            memory_requirements, memory_type
-        )
-
-        self.resources[resource_type].append(
-            (
-                resource,
-                memory_requirements,
-                memory_type_index,
-                self.memory_type_index_to_byte_count[memory_type_index],
-            )
-        )
-
-        self.memory_type_index_to_byte_count[
-            memory_type_index
-        ] += memory_requirements.size
-
-        return self
-
-    def build(self):
-        memory_type_index_to_memory = {
-            memory_type_index: self.app.allocate_memory(
-                memory_type_index=memory_type_index, byte_count=byte_count
-            )
-            for memory_type_index, byte_count in self.memory_type_index_to_byte_count.items()
-        }
-
-        memory_type_index_to_mapped_memory = {
-            memory_type_index: ffi.from_buffer(
-                vkMapMemory(
-                    self.app.device,
-                    memory_type_index_to_memory[memory_type_index],
-                    0,
-                    byte_count,
-                    0,
-                )
-            )
-            for memory_type_index, byte_count in self.memory_type_index_to_byte_count.items()
-            if (1 << memory_type_index) & self.app.memory_types[MemoryType.Downloadable]
-        }
-
-        for buffer, _, memory_type_index, byte_offset in self.buffers:
-            vkBindBufferMemory(
-                self.app.device,
-                buffer,
-                memory_type_index_to_memory[memory_type_index],
-                byte_offset,
-            )
-
-        for image, _, memory_type_index, byte_offset in self.images:
-            vkBindImageMemory(
-                self.app.device,
-                image,
-                memory_type_index_to_memory[memory_type_index],
-                byte_offset,
-            )
-
-        return {
-            resource: ffi.buffer(
-                memory_type_index_to_mapped_memory[memory_type_index] + byte_offset,
-                memory_requirements.size,
-            )
-            for resources in self.resources.values()
-            for resource, memory_requirements, memory_type_index, byte_offset in resources
-            if memory_type_index in memory_type_index_to_mapped_memory
-        }
-
-    def _select_memory_type_index(
-        self, memory_requirements: VkMemoryRequirements, memory_type: MemoryType
-    ):
-        allowable_memory_type_indices = (
-            self.app.memory_types[memory_type] & memory_requirements.memoryTypeBits
-        )
-        assert allowable_memory_type_indices
-
-        result = 0
-        while not allowable_memory_type_indices & 1:
-            allowable_memory_type_indices = allowable_memory_type_indices >> 1
-            result += 1
-        return result
+    DeviceOptimal = 0
+    Uploadable = 1
+    Downloadable = 2
+    LazilyAllocated = 3
 
 
 class CommandBufferBuilder:
-    ONE_TIME_SUBMIT = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
-
     def __init__(self, command_buffer, flags):
         self.command_buffer = command_buffer
         self.flags = flags
 
     def __enter__(self):
-        vkBeginCommandBuffer(
-            self.command_buffer, VkCommandBufferBeginInfo(flags=self.flags)
+        vk.vkBeginCommandBuffer(
+            self.command_buffer, vk.VkCommandBufferBeginInfo(flags=self.flags)
         )
 
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
-        vkEndCommandBuffer(self.command_buffer)
+        vk.vkEndCommandBuffer(self.command_buffer)
 
-    def clear_color_image(self, image, color):
-        vkCmdClearColorImage(
+    def begin_render_pass(
+        self,
+        *,
+        render_pass=None,
+        framebuffer=None,
+        width: int = None,
+        height: int = None,
+        clear_values=List[Tuple[float, float, float, float]],
+    ):
+        vk.vkCmdBeginRenderPass(
+            self.command_buffer,
+            vk.VkRenderPassBeginInfo(
+                renderPass=render_pass,
+                framebuffer=framebuffer,
+                renderArea=vk.VkRect2D(extent=vk.VkExtent2D(width, height)),
+                pClearValues=[
+                    vk.VkClearValue(color=vk.VkClearColorValue(color_tuple))
+                    for color_tuple in clear_values
+                ],
+            ),
+            vk.VK_SUBPASS_CONTENTS_INLINE,
+        )
+
+    def bind_pipeline(self, pipeline):
+        vk.vkCmdBindPipeline(
+            self.command_buffer, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline
+        )
+
+    def clear_color_image(
+        self, *, image=None, color: Tuple[float, float, float, float] = (0, 0, 0, 0)
+    ):
+        vk.vkCmdClearColorImage(
             self.command_buffer,
             image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VkClearColorValue(color),
+            vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            vk.VkClearColorValue(color),
             1,
-            VkImageSubresourceRange(
-                aspectMask=VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
+            vk.VkImageSubresourceRange(
+                aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
             ),
         )
 
-    def copy_image_to_buffer(self, image, buffer, width=0, height=0):
-        vkCmdCopyImageToBuffer(
+    def copy_image_to_buffer(
+        self, *, image=None, buffer=None, width: int = 0, height: int = 0
+    ):
+        vk.vkCmdCopyImageToBuffer(
             self.command_buffer,
             image,
-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
             buffer,
             1,
             [
-                VkBufferImageCopy(
-                    imageSubresource=VkImageSubresourceLayers(
-                        aspectMask=VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
+                vk.VkBufferImageCopy(
+                    imageSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
                     ),
-                    imageExtent=VkExtent3D(width, height, 1),
+                    imageExtent=vk.VkExtent3D(width, height, 1),
                 )
             ],
         )
+
+    def draw(
+        self,
+        *,
+        vertex_count: int,
+        instance_count: int,
+        first_vertex: int = 0,
+        first_instance: int = 0,
+    ):
+        vk.vkCmdDraw(
+            self.command_buffer,
+            vertex_count,
+            instance_count,
+            first_vertex,
+            first_instance,
+        )
+
+    def end_render_pass(self):
+        vk.vkCmdEndRenderPass(self.command_buffer)
 
     def pipeline_barrier(
         self,
         image,
-        old_layout=VK_IMAGE_LAYOUT_UNDEFINED,
-        new_layout=VK_IMAGE_LAYOUT_UNDEFINED,
+        old_layout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        new_layout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
     ):
-        vkCmdPipelineBarrier(
+        vk.vkCmdPipelineBarrier(
             self.command_buffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vk.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            vk.VK_PIPELINE_STAGE_TRANSFER_BIT,
             0,
             0,
             None,
@@ -186,26 +141,20 @@ class CommandBufferBuilder:
             None,
             1,
             [
-                VkImageMemoryBarrier(
+                vk.VkImageMemoryBarrier(
                     srcAccessMask=0,
-                    dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT,
+                    dstAccessMask=vk.VK_ACCESS_TRANSFER_WRITE_BIT,
                     oldLayout=old_layout,
                     newLayout=new_layout,
                     image=image,
-                    subresourceRange=VkImageSubresourceRange(
-                        aspectMask=VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
+                    subresourceRange=vk.VkImageSubresourceRange(
+                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
+                        levelCount=1,
+                        layerCount=1,
                     ),
                 )
             ],
         )
-
-
-class CommandBuffer:
-    def __init__(self, command_buffer):
-        self.command_buffer = command_buffer
-
-    def build(self, flags):
-        return CommandBufferBuilder(self.command_buffer, flags)
 
 
 class Queue:
@@ -213,45 +162,56 @@ class Queue:
         self.queue = queue
 
     def submit(self, command_buffer):
-        vkQueueSubmit(
-            self.queue,
-            1,
-            [VkSubmitInfo(pCommandBuffers=[command_buffer.command_buffer])],
-            None,
+        vk.vkQueueSubmit(
+            self.queue, 1, [vk.VkSubmitInfo(pCommandBuffers=[command_buffer])], None
         )
 
     def wait(self):
-        vkQueueWaitIdle(self.queue)
+        vk.vkQueueWaitIdle(self.queue)
 
 
 class App:
     def __init__(self):
         self.has_errors = False
+        self.instance = None
+        self.selected_physical_device = None
+        self.selected_physical_device_properties = None
+        self.memory_types = None
+        self.debug_utils_messenger = None
+        self.device = None
+        self.graphics_queue = None
+        self.graphics_queue_family_index = None
+        self.vk_destroy_debug_utils_messenger = None
+        self.vk_bind_buffer_memory2 = None
+        self.vk_bind_image_memory2 = None
+        self.allocations = []
+        self.resources = []
 
-        def _debug_callback(severity, type, callback_data, user_data):
+    def __enter__(self):
+        def _debug_callback(_severity, _type, callback_data, _user_data):
             print(ffi.string(callback_data.pMessage).decode("utf-8"))
             self.has_errors = True
             return 0
 
-        debug_utils_messenger_create_info = VkDebugUtilsMessengerCreateInfoEXT(
-            messageSeverity=VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
-            | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
-            messageType=VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-            | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
-            | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+        debug_utils_messenger_create_info = vk.VkDebugUtilsMessengerCreateInfoEXT(
+            messageSeverity=vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
+            messageType=vk.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
             pfnUserCallback=_debug_callback,
             pUserData=ffi.new_handle(self),
         )
 
-        self.instance = vkCreateInstance(
-            VkInstanceCreateInfo(
+        self.instance = vk.vkCreateInstance(
+            vk.VkInstanceCreateInfo(
                 pNext=debug_utils_messenger_create_info,
-                pApplicationInfo=VkApplicationInfo(
+                pApplicationInfo=vk.VkApplicationInfo(
                     pApplicationName="",
-                    applicationVersion=VK_MAKE_VERSION(420, 0, 0),
+                    applicationVersion=vk.VK_MAKE_VERSION(420, 0, 0),
                     pEngineName="weed",
-                    engineVersion=VK_MAKE_VERSION(69, 0, 0),
-                    apiVersion=VK_MAKE_VERSION(1, 1, 0),
+                    engineVersion=vk.VK_MAKE_VERSION(69, 0, 0),
+                    apiVersion=vk.VK_MAKE_VERSION(1, 1, 110),
                 ),
                 ppEnabledExtensionNames=INSTANCE_EXTENSIONS,
                 ppEnabledLayerNames=INSTANCE_LAYERS,
@@ -259,20 +219,17 @@ class App:
             None,
         )
 
-        vkCreateDebugUtilsMessengerEXT = vkGetInstanceProcAddr(
+        self.debug_utils_messenger = vk.vkGetInstanceProcAddr(
             self.instance, "vkCreateDebugUtilsMessengerEXT"
-        )
-        self.vkDestroyDebugUtilsMessengerEXT = vkGetInstanceProcAddr(
+        )(self.instance, debug_utils_messenger_create_info, None)
+
+        self.vk_destroy_debug_utils_messenger = vk.vkGetInstanceProcAddr(
             self.instance, "vkDestroyDebugUtilsMessengerEXT"
         )
 
-        self.debug_utils_messenger = vkCreateDebugUtilsMessengerEXT(
-            self.instance, debug_utils_messenger_create_info, None
-        )
-
-        physical_devices = vkEnumeratePhysicalDevices(self.instance)
+        physical_devices = vk.vkEnumeratePhysicalDevices(self.instance)
         physical_devices_properties = [
-            vkGetPhysicalDeviceProperties(physical_device)
+            vk.vkGetPhysicalDeviceProperties(physical_device)
             for physical_device in physical_devices
         ]
 
@@ -282,7 +239,7 @@ class App:
                 for index, (physical_device, properties) in enumerate(
                     zip(physical_devices, physical_devices_properties)
                 )
-                if properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+                if properties.deviceType == vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
             ),
             0,
         )
@@ -295,122 +252,398 @@ class App:
             (
                 index
                 for index, properties in enumerate(
-                    vkGetPhysicalDeviceQueueFamilyProperties(
+                    vk.vkGetPhysicalDeviceQueueFamilyProperties(
                         self.selected_physical_device
                     )
                 )
-                if properties.queueFlags & VK_QUEUE_GRAPHICS_BIT
+                if properties.queueFlags & vk.VK_QUEUE_GRAPHICS_BIT
             )
         )
 
-        self.device = vkCreateDevice(
+        self.device = vk.vkCreateDevice(
             self.selected_physical_device,
-            VkDeviceCreateInfo(
+            vk.VkDeviceCreateInfo(
                 pQueueCreateInfos=[
-                    VkDeviceQueueCreateInfo(
+                    vk.VkDeviceQueueCreateInfo(
                         queueFamilyIndex=self.graphics_queue_family_index,
                         pQueuePriorities=[1],
                     )
                 ],
+                ppEnabledExtensionNames=DEVICE_EXTENSIONS,
                 ppEnabledLayerNames=INSTANCE_LAYERS,
             ),
             None,
         )
 
+        self.vk_bind_buffer_memory2 = vk.vkGetDeviceProcAddr(
+            self.device, "vkBindBufferMemory2KHR"
+        )
+        self.vk_bind_image_memory2 = vk.vkGetDeviceProcAddr(
+            self.device, "vkBindImageMemory2KHR"
+        )
+
         self.graphics_queue = Queue(
-            vkGetDeviceQueue(self.device, self.graphics_queue_family_index, 0)
+            vk.vkGetDeviceQueue(self.device, self.graphics_queue_family_index, 0)
         )
 
         self.memory_types = App._create_memory_types(
-            vkGetPhysicalDeviceMemoryProperties(self.selected_physical_device)
+            vk.vkGetPhysicalDeviceMemoryProperties(self.selected_physical_device)
         )
 
-        self.buffers = set()
-        self.command_pools = set()
-        self.images = set()
-        self.memorys = set()
-
-    def __enter__(self):
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
-        for buffer in self.buffers:
-            vkDestroyBuffer(self.device, buffer, None)
-        for command_pool in self.command_pools:
-            vkDestroyCommandPool(self.device, command_pool, None)
-        for image in self.images:
-            vkDestroyImage(self.device, image, None)
-        for memory in self.memorys:
-            vkFreeMemory(self.device, memory, None)
-        vkDestroyDevice(self.device, None)
+        destructors = {}
+        for resource in self.resources:
+            resource_type = ffi.typeof(resource)
+            if resource_type not in destructors:
+                type_basename = resource_type.cname[9:-4]
+                destructors[resource_type] = getattr(vk, "vkDestroy" + type_basename)
+            destructors[resource_type](self.device, resource, None)
 
-        self.vkDestroyDebugUtilsMessengerEXT(
+        for memory in self.allocations:
+            vk.vkFreeMemory(self.device, memory, None)
+
+        vk.vkDestroyDevice(self.device, None)
+
+        self.vk_destroy_debug_utils_messenger(
             self.instance, self.debug_utils_messenger, None
         )
 
-        vkDestroyInstance(self.instance, None)
+        vk.vkDestroyInstance(self.instance, None)
 
         assert not self.has_errors
 
-    def new_render_target(self, width, height):
-        image = vkCreateImage(
+    def allocate_command_buffer(self, command_pool):
+        command_buffers = vk.vkAllocateCommandBuffers(
             self.device,
-            VkImageCreateInfo(
-                imageType=VK_IMAGE_TYPE_2D,
-                format=VK_FORMAT_R8G8B8A8_UNORM,
-                extent=VkExtent3D(width, height, 1),
-                mipLevels=1,
-                arrayLayers=1,
-                usage=VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                samples=VK_SAMPLE_COUNT_1_BIT,
+            vk.VkCommandBufferAllocateInfo(
+                commandPool=command_pool, commandBufferCount=1
             ),
-            None,
         )
-        self.images.add(image)
-        return image
-
-    def new_readback_buffer(self, byte_count):
-        buffer = vkCreateBuffer(
-            self.device,
-            VkBufferCreateInfo(size=byte_count, usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT),
-            None,
-        )
-        self.buffers.add(buffer)
-        return buffer
-
-    def memory_builder(self):
-        return MemoryBuilder(self)
-
-    def allocate_memory(self, memory_type_index=None, byte_count=None):
-        memory = vkAllocateMemory(
-            self.device,
-            VkMemoryAllocateInfo(
-                allocationSize=byte_count, memoryTypeIndex=memory_type_index
-            ),
-            None,
-        )
-
-        self.memorys.add(memory)
-        return memory
+        return command_buffers[0]
 
     def new_command_pool(self):
-        command_pool = vkCreateCommandPool(
+        command_pool = vk.vkCreateCommandPool(
             self.device,
-            VkCommandPoolCreateInfo(
-                flags=VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+            vk.VkCommandPoolCreateInfo(
+                flags=vk.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
                 queueFamilyIndex=self.graphics_queue_family_index,
             ),
             None,
         )
-        self.command_pools.add(command_pool)
+        self.resources.append(command_pool)
         return command_pool
 
-    def allocate_command_buffer(self, command_pool):
-        command_buffers = vkAllocateCommandBuffers(
+    def new_framebuffer(self, render_pass, attachments, width, height, layers):
+        framebuffer = vk.vkCreateFramebuffer(
             self.device,
-            VkCommandBufferAllocateInfo(commandPool=command_pool, commandBufferCount=1),
+            vk.VkFramebufferCreateInfo(
+                renderPass=render_pass,
+                pAttachments=attachments,
+                width=width,
+                height=height,
+                layers=layers,
+            ),
+            None,
         )
-        return CommandBuffer(command_buffers[0])
+        self.resources.append(framebuffer)
+        return framebuffer
+
+    def new_image_view(self, image, format):
+        image_view = vk.vkCreateImageView(
+            self.device,
+            vk.VkImageViewCreateInfo(
+                image=image,
+                viewType=vk.VK_IMAGE_VIEW_TYPE_2D,
+                format=format,
+                components=vk.VkComponentMapping(
+                    vk.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    vk.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    vk.VK_COMPONENT_SWIZZLE_IDENTITY,
+                    vk.VK_COMPONENT_SWIZZLE_IDENTITY,
+                ),
+                subresourceRange=vk.VkImageSubresourceRange(
+                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
+                ),
+            ),
+            None,
+        )
+        self.resources.append(image_view)
+        return image_view
+
+    def new_memory_set(self, *memory_requests: Tuple[object, MemoryType]):
+        def select_memory_type_index(
+            memory_requirements: vk.VkMemoryRequirements, memory_type: MemoryType
+        ):
+            allowable_memory_type_indices = (
+                self.memory_types[memory_type] & memory_requirements.memoryTypeBits
+            )
+            assert allowable_memory_type_indices
+
+            result = 0
+            while not allowable_memory_type_indices & 1:
+                allowable_memory_type_indices = allowable_memory_type_indices >> 1
+                result += 1
+            return result
+
+        get_memory_requirements = {
+            VulkanType.BUFFER: vk.vkGetBufferMemoryRequirements,
+            VulkanType.IMAGE: vk.vkGetImageMemoryRequirements,
+        }
+
+        ResourceEntry = Tuple[object, vk.VkMemoryRequirements, int, int]
+        buffers: List[ResourceEntry] = []
+        images: List[ResourceEntry] = []
+        type_to_resources: Dict[object, List[ResourceEntry]] = {
+            VulkanType.BUFFER: buffers,
+            VulkanType.IMAGE: images,
+        }
+
+        memory_type_index_to_byte_count: Dict[int, int] = collections.defaultdict(int)
+
+        for resource, memory_type in memory_requests:
+            resource_type = ffi.typeof(resource)
+
+            memory_requirements = get_memory_requirements[resource_type](
+                self.device, resource
+            )
+            memory_type_index = select_memory_type_index(
+                memory_requirements, memory_type
+            )
+
+            type_to_resources[resource_type].append(
+                (
+                    resource,
+                    memory_requirements,
+                    memory_type_index,
+                    memory_type_index_to_byte_count[memory_type_index],
+                )
+            )
+
+            memory_type_index_to_byte_count[
+                memory_type_index
+            ] += memory_requirements.size
+
+        memory_type_index_to_memory = {
+            memory_type_index: vk.vkAllocateMemory(
+                self.device,
+                vk.VkMemoryAllocateInfo(
+                    allocationSize=byte_count, memoryTypeIndex=memory_type_index
+                ),
+                None,
+            )
+            for memory_type_index, byte_count in memory_type_index_to_byte_count.items()
+        }
+
+        self.allocations += memory_type_index_to_memory.values()
+
+        memory_type_index_to_mapped_memory = {
+            memory_type_index: ffi.from_buffer(
+                vk.vkMapMemory(
+                    self.device,
+                    memory_type_index_to_memory[memory_type_index],
+                    0,
+                    byte_count,
+                    0,
+                )
+            )
+            for memory_type_index, byte_count in memory_type_index_to_byte_count.items()
+            if (1 << memory_type_index) & self.memory_types[MemoryType.Downloadable]
+        }
+
+        self.vk_bind_buffer_memory2(
+            self.device,
+            len(buffers),
+            [
+                vk.VkBindBufferMemoryInfo(
+                    buffer=buffer,
+                    memory=memory_type_index_to_memory[memory_type_index],
+                    memoryOffset=byte_offset,
+                )
+                for buffer, _, memory_type_index, byte_offset in buffers
+            ],
+        )
+
+        self.vk_bind_image_memory2(
+            self.device,
+            len(images),
+            [
+                vk.VkBindImageMemoryInfo(
+                    image=image,
+                    memory=memory_type_index_to_memory[memory_type_index],
+                    memoryOffset=byte_offset,
+                )
+                for image, _, memory_type_index, byte_offset in images
+            ],
+        )
+
+        return {
+            resource: ffi.buffer(
+                memory_type_index_to_mapped_memory[memory_type_index] + byte_offset,
+                memory_requirements.size,
+            )
+            for resources in type_to_resources.values()
+            for resource, memory_requirements, memory_type_index, byte_offset in resources
+            if memory_type_index in memory_type_index_to_mapped_memory
+        }
+
+    def new_pipeline(
+        self,
+        pipeline_layout,
+        render_pass,
+        vertex_shader,
+        fragment_shader,
+        width,
+        height,
+    ):
+        extent = vk.VkExtent2D(width, height)
+
+        shader_stages = [
+            vk.VkPipelineShaderStageCreateInfo(
+                stage=vk.VK_SHADER_STAGE_VERTEX_BIT, module=vertex_shader, pName="main"
+            ),
+            vk.VkPipelineShaderStageCreateInfo(
+                stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                module=fragment_shader,
+                pName="main",
+            ),
+        ]
+
+        vertex_input_create = vk.VkPipelineVertexInputStateCreateInfo(
+            pVertexBindingDescriptions=None, pVertexAttributeDescriptions=None
+        )
+
+        input_assembly_create = vk.VkPipelineInputAssemblyStateCreateInfo(
+            topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+        )
+
+        viewport_state_create = vk.VkPipelineViewportStateCreateInfo(
+            pViewports=[
+                vk.VkViewport(width=width, height=height, minDepth=0.0, maxDepth=1.0)
+            ],
+            pScissors=[vk.VkRect2D(extent=extent)],
+        )
+
+        rasterizer_create = vk.VkPipelineRasterizationStateCreateInfo(
+            depthClampEnable=vk.VK_FALSE,
+            rasterizerDiscardEnable=vk.VK_FALSE,
+            polygonMode=vk.VK_POLYGON_MODE_FILL,
+            cullMode=vk.VK_CULL_MODE_BACK_BIT,
+            frontFace=vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            lineWidth=1,
+            depthBiasEnable=vk.VK_FALSE,
+            depthBiasConstantFactor=0.0,
+            depthBiasClamp=0.0,
+            depthBiasSlopeFactor=0.0,
+        )
+
+        multisample_create = vk.VkPipelineMultisampleStateCreateInfo(
+            rasterizationSamples=vk.VK_SAMPLE_COUNT_1_BIT
+        )
+
+        color_blend_attachements = vk.VkPipelineColorBlendAttachmentState(
+            colorWriteMask=vk.VK_COLOR_COMPONENT_R_BIT
+            | vk.VK_COLOR_COMPONENT_G_BIT
+            | vk.VK_COLOR_COMPONENT_B_BIT
+            | vk.VK_COLOR_COMPONENT_A_BIT
+        )
+
+        color_blend_create = vk.VkPipelineColorBlendStateCreateInfo(
+            pAttachments=[color_blend_attachements], blendConstants=[0, 0, 0, 0]
+        )
+
+        pipeline_create = vk.VkGraphicsPipelineCreateInfo(
+            pStages=shader_stages,
+            pVertexInputState=vertex_input_create,
+            pInputAssemblyState=input_assembly_create,
+            pTessellationState=None,
+            pViewportState=viewport_state_create,
+            pRasterizationState=rasterizer_create,
+            pMultisampleState=multisample_create,
+            pDepthStencilState=None,
+            pColorBlendState=color_blend_create,
+            pDynamicState=None,
+            layout=pipeline_layout,
+            renderPass=render_pass,
+            subpass=0,
+        )
+
+        pipeline = vk.vkCreateGraphicsPipelines(
+            self.device, None, 1, [pipeline_create], None
+        )
+
+        self.resources.append(pipeline)
+        return pipeline
+
+    def new_pipeline_layout(self):
+        pipeline_layout = vk.vkCreatePipelineLayout(
+            self.device, vk.VkPipelineLayoutCreateInfo(), None
+        )
+        self.resources.append(pipeline_layout)
+        return pipeline_layout
+
+    def new_readback_buffer(self, byte_count):
+        buffer = vk.vkCreateBuffer(
+            self.device,
+            vk.VkBufferCreateInfo(
+                size=byte_count, usage=vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            ),
+            None,
+        )
+        self.resources.append(buffer)
+        return buffer
+
+    def new_render_pass(self, *, attachments, subpass_descriptions):
+        render_pass = vk.vkCreateRenderPass(
+            self.device,
+            vk.VkRenderPassCreateInfo(
+                pAttachments=attachments, pSubpasses=subpass_descriptions
+            ),
+            None,
+        )
+        self.resources.append(render_pass)
+        return render_pass
+
+    def new_render_target(self, format, width: int, height: int):
+        image = vk.vkCreateImage(
+            self.device,
+            vk.VkImageCreateInfo(
+                imageType=vk.VK_IMAGE_TYPE_2D,
+                format=format,
+                extent=vk.VkExtent3D(width, height, 1),
+                mipLevels=1,
+                arrayLayers=1,
+                usage=vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                | vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+            ),
+            None,
+        )
+        self.resources.append(image)
+        return image
+
+    def new_shader_set(self, *paths):
+        filenames = [path.split("/")[-1] for path in paths]
+        stages = [filename.split(".")[-2] for filename in filenames]
+        attribute_names = ["_".join(filename.split(".")[:2]) for filename in filenames]
+        spirvs = [
+            pyshaderc.compile_file_into_spirv(
+                filepath=path, stage=stage, warnings_as_errors=True
+            )
+            for path, stage in zip(paths, stages)
+        ]
+        shader_modules = [
+            vk.vkCreateShaderModule(
+                self.device,
+                vk.VkShaderModuleCreateInfo(codeSize=len(spirv), pCode=spirv),
+                None,
+            )
+            for spirv in spirvs
+        ]
+        self.resources += shader_modules
+        return collections.namedtuple("ShaderSet", attribute_names)(*shader_modules)
 
     @staticmethod
     def _create_memory_types(physical_device_memory_properties):
@@ -419,20 +652,22 @@ class App:
             physical_device_memory_properties.memoryTypeCount,
         )
 
-        get_memory_type_bits = lambda memory_type_bit: sum(
-            (
+        def get_memory_type_bits(memory_type_bit):
+            return sum(
                 bool(memory_type.propertyFlags & memory_type_bit) << index
                 for index, memory_type in enumerate(memory_types)
             )
+
+        def try_mask(flags, mask):
+            return flags & mask if flags & mask else flags
+
+        device_local = get_memory_type_bits(vk.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+        host_visible = get_memory_type_bits(vk.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
+        host_coherent = get_memory_type_bits(vk.VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+        host_cached = get_memory_type_bits(vk.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
+        lazily_allocated = get_memory_type_bits(
+            vk.VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT
         )
-
-        try_mask = lambda flags, mask: flags & mask if flags & mask else flags
-
-        device_local = get_memory_type_bits(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-        host_visible = get_memory_type_bits(VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)
-        host_coherent = get_memory_type_bits(VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
-        host_cached = get_memory_type_bits(VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-        lazily_allocated = get_memory_type_bits(VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT)
 
         device_optimal = try_mask(device_local, ~host_visible)
         uploadable = try_mask(host_visible, device_local)
@@ -448,4 +683,3 @@ class App:
             MemoryType.Downloadable: downloadable,
             MemoryType.LazilyAllocated: lazily_allocated,
         }
-
