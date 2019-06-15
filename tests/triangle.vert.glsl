@@ -9,5 +9,5 @@ void main() {
         2 * (gl_VertexIndex % 2) - 1,
         0.0,
         1.0
-    ) ;
+    );
 }
