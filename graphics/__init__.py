@@ -1,10 +1,10 @@
 import collections
 from enum import Enum
 from typing import Dict, List, Tuple
-
-import vulkan as vk
 from vulkan import ffi
+import vulkan as vk
 import pyshaderc
+import graphics.types
 
 INSTANCE_EXTENSIONS = ["VK_EXT_debug_utils"]
 INSTANCE_LAYERS = ["VK_LAYER_LUNARG_standard_validation"]
@@ -44,7 +44,7 @@ class CommandBufferBuilder:
         framebuffer=None,
         width: int = None,
         height: int = None,
-        clear_values=List[Tuple[float, float, float, float]],
+        clear_values=List[vk.VkClearValue],
     ):
         vk.vkCmdBeginRenderPass(
             self.command_buffer,
@@ -52,10 +52,7 @@ class CommandBufferBuilder:
                 renderPass=render_pass,
                 framebuffer=framebuffer,
                 renderArea=vk.VkRect2D(extent=vk.VkExtent2D(width, height)),
-                pClearValues=[
-                    vk.VkClearValue(color=vk.VkClearColorValue(color_tuple))
-                    for color_tuple in clear_values
-                ],
+                pClearValues=clear_values,
             ),
             vk.VK_SUBPASS_CONTENTS_INLINE,
         )
@@ -194,6 +191,7 @@ class Queue:
 
 
 class App:
+    # pylint: disable=too-many-instance-attributes
     def __init__(self):
         self.has_errors = False
         self.allocations = []
@@ -247,17 +245,15 @@ class App:
         selected_physical_device_index = next(
             (
                 index
-                for index, (physical_device, properties) in enumerate(
-                    zip(physical_devices, physical_devices_properties)
+                for index, physical_device_properties in enumerate(
+                    physical_devices_properties
                 )
-                if properties.deviceType == vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+                if physical_device_properties.deviceType
+                == vk.VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
             ),
             0,
         )
         self.selected_physical_device = physical_devices[selected_physical_device_index]
-        self.selected_physical_device_properties = physical_devices_properties[
-            selected_physical_device_index
-        ]
 
         self.graphics_queue_family_index = next(
             (
@@ -377,7 +373,7 @@ class App:
         self.resources.append(framebuffer)
         return framebuffer
 
-    def new_image_view(self, image, format):
+    def new_image_view(self, *, image, format, aspect=graphics.types.ImageAspect.COLOR):
         image_view = vk.vkCreateImageView(
             self.device,
             vk.VkImageViewCreateInfo(
@@ -391,7 +387,7 @@ class App:
                     vk.VK_COMPONENT_SWIZZLE_IDENTITY,
                 ),
                 subresourceRange=vk.VkImageSubresourceRange(
-                    aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
+                    aspectMask=aspect, levelCount=1, layerCount=1
                 ),
             ),
             None,
@@ -399,7 +395,12 @@ class App:
         self.resources.append(image_view)
         return image_view
 
-    def new_memory_set(self, *memory_requests: Tuple[object, MemoryType]):
+    def new_memory_set(
+        self,
+        memory_requests: Dict[object, MemoryType],
+        *,
+        initial_values: Dict[object, bytes] = {},
+    ):
         def select_memory_type_index(
             memory_requirements: vk.VkMemoryRequirements, memory_type: MemoryType
         ):
@@ -429,7 +430,7 @@ class App:
 
         memory_type_index_to_byte_count: Dict[int, int] = collections.defaultdict(int)
 
-        for resource, memory_type in memory_requests:
+        for resource, memory_type in memory_requests.items():
             resource_type = ffi.typeof(resource)
 
             memory_requirements = get_memory_requirements[resource_type](
@@ -512,7 +513,7 @@ class App:
                 ],
             )
 
-        return {
+        mappings = {
             resource: ffi.buffer(
                 memory_type_index_to_mapped_memory[memory_type_index] + byte_offset,
                 memory_requirements.size,
@@ -522,9 +523,14 @@ class App:
             if memory_type_index in memory_type_index_to_mapped_memory
         }
 
+        for resource, value in initial_values.items():
+            mappings[resource][: len(value)] = value
+
+        return mappings
+
     def new_pipeline(self, pipeline_description):
         pipeline = vk.vkCreateGraphicsPipelines(
-            self.device, None, 1, [pipeline_description.create_info], None
+            self.device, None, 1, [pipeline_description[0]], None
         )
 
         self.resources.append(pipeline)
@@ -548,7 +554,7 @@ class App:
         self.resources.append(render_pass)
         return render_pass
 
-    def new_render_target(self, format, width: int, height: int):
+    def new_render_target(self, *, format, usage, width: int, height: int):
         image = vk.vkCreateImage(
             self.device,
             vk.VkImageCreateInfo(
@@ -557,9 +563,7 @@ class App:
                 extent=vk.VkExtent3D(width, height, 1),
                 mipLevels=1,
                 arrayLayers=1,
-                usage=vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-                | vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
-                | vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                usage=usage,
                 samples=vk.VK_SAMPLE_COUNT_1_BIT,
             ),
             None,
@@ -619,6 +623,7 @@ class App:
         downloadable = try_mask(host_visible, device_local)
         downloadable = try_mask(downloadable, host_cached)
         downloadable = try_mask(downloadable, ~host_coherent)
+        lazily_allocated = lazily_allocated if lazily_allocated else device_local
 
         return {
             MemoryType.DeviceOptimal: device_optimal,
@@ -626,3 +631,4 @@ class App:
             MemoryType.Downloadable: downloadable,
             MemoryType.LazilyAllocated: lazily_allocated,
         }
+

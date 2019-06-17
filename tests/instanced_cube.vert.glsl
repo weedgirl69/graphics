@@ -2,6 +2,7 @@
 
 layout(location=0)in vec3 in_position;
 layout(location=1)in vec3 in_normal;
+layout(location=2)in mat3x4 in_instance_transform;
 layout(location=0)out vec3 out_color;
 
 void main(){
@@ -16,7 +17,7 @@ void main(){
         0,0,far/(near-far),(near*far)/(near-far),
         0,0,-1,0
     );
-    vec3 camera_position=vec3(2,2,2.5);
+    vec3 camera_position=vec3(0,0,3);
     vec3 view_direction=normalize(camera_position);
     vec3 right=normalize(cross(vec3(0,1,0),view_direction));
     vec3 up=cross(view_direction,right);
@@ -27,5 +28,5 @@ void main(){
         vec4(view_direction,-dot(view_direction,camera_position)),
         vec4(0,0,0,1));
         
-        gl_Position=vec4(in_position,1)*view*projection;
+        gl_Position=vec4(vec4(in_position,1)*in_instance_transform,1)*view*projection;
     }

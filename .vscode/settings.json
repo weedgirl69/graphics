@@ -1,19 +1,24 @@
 {
     "python.formatting.provider": "black",
     "python.linting.enabled": true,
-    "python.testing.pyTestArgs": [
-        "tests"
-    ],
-    "python.testing.promptToConfigure": false,
+    "python.linting.flake8Enabled": true,
+    "python.linting.mypyEnabled": true,
+    "python.linting.pep8Enabled": true,
     "python.linting.pylintArgs": [
         "--rcfile",
         ".pylintrc"
     ],
-    "python.linting.pylintEnabled": true,
     "python.linting.pylintCategorySeverity.convention": "Error",
     "python.linting.pylintCategorySeverity.refactor": "Warning",
     "python.linting.pylintCategorySeverity.warning": "Error",
-    "python.linting.pep8Enabled": true,
-    "python.linting.flake8Enabled": true,
-    "python.linting.mypyEnabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.testing.nosetestsEnabled": false,
+    "python.envFile": "${workspaceFolder}/.env",
+    "python.testing.pyTestArgs": [
+        "tests",
+        "-rpP"
+    ],
+    "python.testing.promptToConfigure": false,
+    "python.testing.pyTestEnabled": true,
+    "python.testing.unittestEnabled": false,
 }
