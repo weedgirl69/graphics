@@ -37,6 +37,18 @@ class CommandBufferBuilder:
     def __exit__(self, exception_type, exception_value, traceback):
         vk.vkEndCommandBuffer(self.command_buffer)
 
+    def bind_descriptor_sets(self, pipeline_layout, descriptor_sets):
+        vk.vkCmdBindDescriptorSets(
+            self.command_buffer,
+            vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipeline_layout,
+            0,
+            len(descriptor_sets),
+            descriptor_sets,
+            0,
+            None,
+        )
+
     def begin_render_pass(
         self,
         *,
@@ -74,6 +86,50 @@ class CommandBufferBuilder:
             self.command_buffer, 0, len(buffers), buffers, byte_offsets
         )
 
+    def blit_image(
+        self,
+        *,
+        source_image,
+        source_subresource_index,
+        source_width,
+        source_height,
+        destination_image,
+        destination_subresource_index,
+        destination_width,
+        destination_height,
+    ):
+        vk.vkCmdBlitImage(
+            self.command_buffer,
+            source_image,
+            graphics.types.ImageLayout.TRANSFER_SOURCE,
+            destination_image,
+            graphics.types.ImageLayout.TRANSFER_DESTINATION,
+            1,
+            [
+                vk.VkImageBlit(
+                    srcSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=graphics.types.ImageAspect.COLOR,
+                        mipLevel=source_subresource_index,
+                        layerCount=1,
+                    ),
+                    srcOffsets=[
+                        vk.VkOffset3D(),
+                        vk.VkOffset3D(source_width, source_height, 1),
+                    ],
+                    dstSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=graphics.types.ImageAspect.COLOR,
+                        mipLevel=destination_subresource_index,
+                        layerCount=1,
+                    ),
+                    dstOffsets=[
+                        vk.VkOffset3D(),
+                        vk.VkOffset3D(destination_width, destination_height, 1),
+                    ],
+                )
+            ],
+            graphics.types.Filter.LINEAR,
+        )
+
     def clear_color_image(
         self, *, image=None, color: Tuple[float, float, float, float] = (0, 0, 0, 0)
     ):
@@ -86,6 +142,23 @@ class CommandBufferBuilder:
             vk.VkImageSubresourceRange(
                 aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, levelCount=1, layerCount=1
             ),
+        )
+
+    def copy_buffer_to_image(self, *, buffer, image, width, height):
+        vk.vkCmdCopyBufferToImage(
+            self.command_buffer,
+            buffer,
+            image,
+            vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1,
+            [
+                vk.VkBufferImageCopy(
+                    imageSubresource=vk.VkImageSubresourceLayers(
+                        aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT, layerCount=1
+                    ),
+                    imageExtent=vk.VkExtent3D(width=width, height=height, depth=1),
+                )
+            ],
         )
 
     def copy_image_to_buffer(
@@ -146,9 +219,12 @@ class CommandBufferBuilder:
 
     def pipeline_barrier(
         self,
+        *,
         image,
         old_layout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
         new_layout=vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        base_mip_level: int = 0,
+        mip_count: int = 1,
     ):
         vk.vkCmdPipelineBarrier(
             self.command_buffer,
@@ -169,7 +245,8 @@ class CommandBufferBuilder:
                     image=image,
                     subresourceRange=vk.VkImageSubresourceRange(
                         aspectMask=vk.VK_IMAGE_ASPECT_COLOR_BIT,
-                        levelCount=1,
+                        baseMipLevel=base_mip_level,
+                        levelCount=mip_count,
                         layerCount=1,
                     ),
                 )
@@ -192,14 +269,26 @@ class Queue:
 
 class App:
     # pylint: disable=too-many-instance-attributes
+
+    class _Decorators:
+        # pylint: disable=too-few-public-methods
+        @staticmethod
+        def add_to_resources(decorated):
+            def wrapper(self, *args, **kwargs):
+                resource = decorated(self, *args, **kwargs)
+                self.resources.append(resource)
+                return resource
+
+            return wrapper
+
     def __init__(self):
-        self.has_errors = False
+        self.errors = []
         self.allocations = []
         self.resources = []
 
         def _debug_callback(_severity, _type, callback_data, _user_data):
-            print(ffi.string(callback_data.pMessage).decode("utf-8"))
-            self.has_errors = True
+            message_string = ffi.string(callback_data.pMessage).decode("utf-8")
+            self.errors.append(message_string)
             return 0
 
         debug_utils_messenger_create_info = vk.VkDebugUtilsMessengerCreateInfoEXT(
@@ -273,7 +362,7 @@ class App:
                 pQueueCreateInfos=[
                     vk.VkDeviceQueueCreateInfo(
                         queueFamilyIndex=self.graphics_queue_family_index,
-                        pQueuePriorities=[1],
+                        pQueuePriorities=[1.0],
                     )
                 ],
                 ppEnabledExtensionNames=DEVICE_EXTENSIONS,
@@ -297,10 +386,7 @@ class App:
             vk.vkGetPhysicalDeviceMemoryProperties(self.selected_physical_device)
         )
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exception_type, exception_value, traceback):
+    def close(self):
         destructors = {}
         for resource in self.resources:
             resource_type = ffi.typeof(resource)
@@ -320,8 +406,6 @@ class App:
 
         vk.vkDestroyInstance(self.instance, None)
 
-        assert not self.has_errors
-
     def allocate_command_buffer(self, command_pool):
         command_buffers = vk.vkAllocateCommandBuffers(
             self.device,
@@ -331,15 +415,25 @@ class App:
         )
         return command_buffers[0]
 
+    def allocate_descriptor_set(self, *, descriptor_pool, descriptor_set_layouts=[]):
+        return vk.vkAllocateDescriptorSets(
+            self.device,
+            vk.VkDescriptorSetAllocateInfo(
+                descriptorPool=descriptor_pool,
+                descriptorSetCount=1,
+                pSetLayouts=descriptor_set_layouts,
+            ),
+        )
+
+    @_Decorators.add_to_resources
     def new_buffer(self, *, byte_count, usage):
-        buffer = vk.vkCreateBuffer(
+        return vk.vkCreateBuffer(
             self.device, vk.VkBufferCreateInfo(size=byte_count, usage=usage), None
         )
-        self.resources.append(buffer)
-        return buffer
 
+    @_Decorators.add_to_resources
     def new_command_pool(self):
-        command_pool = vk.vkCreateCommandPool(
+        return vk.vkCreateCommandPool(
             self.device,
             vk.VkCommandPoolCreateInfo(
                 flags=vk.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
@@ -347,9 +441,38 @@ class App:
             ),
             None,
         )
-        self.resources.append(command_pool)
-        return command_pool
 
+    @_Decorators.add_to_resources
+    def new_descriptor_pool(self):
+        return vk.vkCreateDescriptorPool(
+            self.device,
+            vk.VkDescriptorPoolCreateInfo(
+                maxSets=1,
+                pPoolSizes=[
+                    vk.VkDescriptorPoolSize(
+                        vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptorCount=1
+                    )
+                ],
+            ),
+            None,
+        )
+
+    @_Decorators.add_to_resources
+    def new_descriptor_set_layout(self, immutable_samplers=None):
+        bindings = [
+            vk.VkDescriptorSetLayoutBinding(
+                binding=0,
+                descriptorType=vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                descriptorCount=1,
+                stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                pImmutableSamplers=immutable_samplers,
+            )
+        ]
+        return vk.vkCreateDescriptorSetLayout(
+            self.device, vk.VkDescriptorSetLayoutCreateInfo(pBindings=bindings), None
+        )
+
+    @_Decorators.add_to_resources
     def new_framebuffer(
         self,
         *,
@@ -359,7 +482,7 @@ class App:
         height: int,
         layers: int = 1,
     ):
-        framebuffer = vk.vkCreateFramebuffer(
+        return vk.vkCreateFramebuffer(
             self.device,
             vk.VkFramebufferCreateInfo(
                 renderPass=render_pass,
@@ -370,11 +493,33 @@ class App:
             ),
             None,
         )
-        self.resources.append(framebuffer)
-        return framebuffer
 
-    def new_image_view(self, *, image, format, aspect=graphics.types.ImageAspect.COLOR):
-        image_view = vk.vkCreateImageView(
+    @_Decorators.add_to_resources
+    def new_image(self, *, format, usage, width: int, height: int, mip_count: int = 1):
+        return vk.vkCreateImage(
+            self.device,
+            vk.VkImageCreateInfo(
+                imageType=vk.VK_IMAGE_TYPE_2D,
+                format=format,
+                extent=vk.VkExtent3D(width, height, 1),
+                mipLevels=mip_count,
+                arrayLayers=1,
+                usage=usage,
+                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+            ),
+            None,
+        )
+
+    @_Decorators.add_to_resources
+    def new_image_view(
+        self,
+        *,
+        image,
+        format,
+        mip_count: int = 1,
+        aspect=graphics.types.ImageAspect.COLOR,
+    ):
+        return vk.vkCreateImageView(
             self.device,
             vk.VkImageViewCreateInfo(
                 image=image,
@@ -387,13 +532,11 @@ class App:
                     vk.VK_COMPONENT_SWIZZLE_IDENTITY,
                 ),
                 subresourceRange=vk.VkImageSubresourceRange(
-                    aspectMask=aspect, levelCount=1, layerCount=1
+                    aspectMask=aspect, levelCount=mip_count, layerCount=1
                 ),
             ),
             None,
         )
-        self.resources.append(image_view)
-        return image_view
 
     def new_memory_set(
         self,
@@ -405,15 +548,12 @@ class App:
             memory_requirements: vk.VkMemoryRequirements, memory_type: MemoryType
         ):
             allowable_memory_type_indices = (
-                self.memory_types[memory_type] & memory_requirements.memoryTypeBits
+                memory_requirements.memoryTypeBits & self.memory_types[memory_type]
             )
             assert allowable_memory_type_indices
 
-            result = 0
-            while not allowable_memory_type_indices & 1:
-                allowable_memory_type_indices = allowable_memory_type_indices >> 1
-                result += 1
-            return result
+            bits = bin(allowable_memory_type_indices)
+            return len(bits) - len(bits.rstrip("0"))
 
         get_memory_requirements = {
             BUFFER_TYPE: vk.vkGetBufferMemoryRequirements,
@@ -528,48 +668,44 @@ class App:
 
         return mappings
 
+    @_Decorators.add_to_resources
     def new_pipeline(self, pipeline_description):
-        pipeline = vk.vkCreateGraphicsPipelines(
+        return vk.vkCreateGraphicsPipelines(
             self.device, None, 1, [pipeline_description[0]], None
         )
 
-        self.resources.append(pipeline)
-        return pipeline
-
-    def new_pipeline_layout(self):
-        pipeline_layout = vk.vkCreatePipelineLayout(
-            self.device, vk.VkPipelineLayoutCreateInfo(), None
+    @_Decorators.add_to_resources
+    def new_pipeline_layout(self, descriptor_set_layouts: List[object] = None):
+        return vk.vkCreatePipelineLayout(
+            self.device,
+            vk.VkPipelineLayoutCreateInfo(pSetLayouts=descriptor_set_layouts),
+            None,
         )
-        self.resources.append(pipeline_layout)
-        return pipeline_layout
 
+    @_Decorators.add_to_resources
     def new_render_pass(self, *, attachments, subpass_descriptions):
-        render_pass = vk.vkCreateRenderPass(
+        return vk.vkCreateRenderPass(
             self.device,
             vk.VkRenderPassCreateInfo(
                 pAttachments=attachments, pSubpasses=subpass_descriptions
             ),
             None,
         )
-        self.resources.append(render_pass)
-        return render_pass
 
-    def new_render_target(self, *, format, usage, width: int, height: int):
-        image = vk.vkCreateImage(
+    @_Decorators.add_to_resources
+    def new_sampler(self, *, min_filter, mag_filter):
+        return vk.vkCreateSampler(
             self.device,
-            vk.VkImageCreateInfo(
-                imageType=vk.VK_IMAGE_TYPE_2D,
-                format=format,
-                extent=vk.VkExtent3D(width, height, 1),
-                mipLevels=1,
-                arrayLayers=1,
-                usage=usage,
-                samples=vk.VK_SAMPLE_COUNT_1_BIT,
+            vk.VkSamplerCreateInfo(
+                minFilter=min_filter,
+                magFilter=mag_filter,
+                mipmapMode=vk.VK_SAMPLER_MIPMAP_MODE_LINEAR,
+                addressModeU=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                addressModeV=vk.VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+                maxLod=float("inf"),
             ),
             None,
         )
-        self.resources.append(image)
-        return image
 
     def new_shader_set(self, *paths):
         filenames = [path.split("/")[-1] for path in paths]
@@ -591,6 +727,15 @@ class App:
         ]
         self.resources += shader_modules
         return collections.namedtuple("ShaderSet", attribute_names)(*shader_modules)
+
+    def update_descriptor_sets(self, descriptor_set_writes: List[object]):
+        vk.vkUpdateDescriptorSets(
+            self.device,
+            descriptorWriteCount=len(descriptor_set_writes),
+            pDescriptorWrites=descriptor_set_writes,
+            descriptorCopyCount=0,
+            pDescriptorCopies=[],
+        )
 
     @staticmethod
     def _create_memory_types(physical_device_memory_properties):

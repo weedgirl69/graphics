@@ -1,4 +1,5 @@
 import array
+import contextlib
 import itertools
 import math
 import numpy as np
@@ -11,6 +12,7 @@ from graphics.types import (
     ClearValue,
     CommandBufferUsage,
     DepthDescription,
+    Filter,
     Format,
     GraphicsPipelineDescription,
     ImageAspect,
@@ -23,6 +25,7 @@ from graphics.types import (
     VertexAttribute,
     VertexBinding,
     VertexInputRate,
+    WriteDescriptorImage,
 )
 
 CUBE_INDICES = array.array(
@@ -62,7 +65,6 @@ CUBE_POSITIONS = array.array(
     ),
 )
 
-
 CUBE_NORMALS = array.array(
     "f",
     itertools.chain(
@@ -76,60 +78,182 @@ CUBE_NORMALS = array.array(
 )
 
 
-@pytest.fixture(name="test_app")
-def test_app_fixture(request):
-    class TestData:
-        # pylint: disable=too-few-public-methods
-        # pylint: disable=too-many-instance-attributes
-        def __init__(self, app):
-            self.app = app
-            self.golden_path = (
-                "tests/goldens/" + request.function.__name__[len("test_") :] + ".png"
-            )
-            self.width = 420
-            self.height = 420
-            self.readback_buffer = app.new_buffer(
-                byte_count=self.width * self.height * 4,
-                usage=BufferUsage.TRANSFER_DESTINATION,
-            )
-            mapped_memory = app.new_memory_set(
-                {self.readback_buffer: graphics.MemoryType.Downloadable}
-            )
-            self.readback_buffer_memory = mapped_memory[self.readback_buffer]
-            self.command_pool = app.new_command_pool()
-            self.command_buffer = app.allocate_command_buffer(self.command_pool)
+class AppTest:
+    # pylint: disable=too-few-public-methods
+    def __init__(self, name=None, width=420, height=420):
+        self.name = name
+        self.width = width
+        self.height = height
 
-    with graphics.App() as app:
-        test_data = TestData(app)
-        yield test_data, app
+    def __call__(self, method):
+        if not self.name:
+            self.name = method.__name__
 
-        app.graphics_queue.submit(test_data.command_buffer)
-        app.graphics_queue.wait()
+        def wrapper():
+            # pylint: disable=no-member
 
-        test_image_bytes = test_data.readback_buffer_memory[
-            0 : test_data.width * test_data.height * 4
-        ]
+            class TestData:
+                # pylint: disable=too-few-public-methods
+                # pylint: disable=too-many-instance-attributes
+                def __init__(self, app, width, height):
+                    self.app = app
+                    self.width = width
+                    self.height = height
+                    self.readback_buffer = app.new_buffer(
+                        byte_count=self.width * self.height * 4,
+                        usage=BufferUsage.TRANSFER_DESTINATION,
+                    )
+                    mapped_memory = app.new_memory_set(
+                        {self.readback_buffer: graphics.MemoryType.Downloadable}
+                    )
+                    self.readback_buffer_memory = mapped_memory[self.readback_buffer]
+                    self.command_pool = app.new_command_pool()
+                    self.command_buffer = app.allocate_command_buffer(self.command_pool)
 
-        try:
-            with open(test_data.golden_path, "rb") as file:
-                png_reader = png.Reader(file=file)
-                golden_image_bytes = png_reader.read_flat()[2].tobytes()
-                assert golden_image_bytes == test_image_bytes
-        except FileNotFoundError:
-            with open(test_data.golden_path, "wb") as file:
-                png_writer = png.Writer(test_data.width, test_data.height, alpha=True)
-                png_writer.write_array(file, test_image_bytes)
+            with contextlib.closing(graphics.App()) as app:
+                test_data = TestData(app, self.width, self.height)
+
+                method(app, test_data)
+
+                app.graphics_queue.submit(test_data.command_buffer)
+                app.graphics_queue.wait()
+
+                test_image_bytes = test_data.readback_buffer_memory[
+                    0 : test_data.width * test_data.height * 4
+                ]
+
+                golden_path = "tests/goldens/" + self.name[len("test_") :] + ".png"
+                try:
+                    with open(golden_path, "rb") as file:
+                        png_reader = png.Reader(file=file)
+                        golden_image_bytes = png_reader.read_flat()[2].tobytes()
+                        assert golden_image_bytes == test_image_bytes
+                except FileNotFoundError:
+                    with open(golden_path, "wb") as file:
+                        png_writer = png.Writer(
+                            test_data.width, test_data.height, alpha=True
+                        )
+                        png_writer.write_array(file, test_image_bytes)
+
+            if app.errors:
+                for error in app.errors:
+                    print(error)
+                assert False
+
+        return wrapper
 
 
-def test_triangle(test_app):
-    test_data, app = test_app
-    image = app.new_render_target(
+@AppTest(width=480, height=320)
+def test_texture(app, test_data):
+    color_target_image = app.new_image(
         format=Format.R8G8B8A8_SRGB,
-        usage=ImageUsage.COLOR | ImageUsage.TRANSFER_SOURCE,
+        usage=ImageUsage.COLOR_ATTACHMENT | ImageUsage.TRANSFER_SOURCE,
         width=test_data.width,
         height=test_data.height,
     )
-    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
+    texture_size = 160
+    texture_mip_count = 1 + int(math.log2(texture_size))
+    test_texture_image = app.new_image(
+        format=Format.R8G8B8A8_SRGB,
+        usage=ImageUsage.SAMPLED
+        | ImageUsage.TRANSFER_DESTINATION
+        | ImageUsage.TRANSFER_SOURCE,
+        width=texture_size,
+        height=texture_size,
+        mip_count=texture_mip_count,
+    )
+    test_texture_buffer_byte_count = texture_size * texture_size * 4
+    test_texture_buffer = app.new_buffer(
+        byte_count=test_texture_buffer_byte_count, usage=BufferUsage.TRANSFER_SOURCE
+    )
+
+    def create_square(x, y, size):
+        # pylint: disable=invalid-name
+        return (x, y), (x, y + size), (x + size, y + size), (x + size, y)
+
+    positions = [
+        *create_square(0, 0, texture_size * 2),
+        *create_square(texture_size * 2, 0, texture_size),
+    ]
+    x_offset = texture_size * 2
+    current_size = texture_size // 2
+    for _ in range(2, texture_mip_count + 1):
+        positions += create_square(x_offset, texture_size, current_size)
+        x_offset += current_size
+        current_size //= 2
+
+    texcoord_bytes = array.array(
+        "f",
+        itertools.chain.from_iterable(
+            ((0, 0), (0, 1), (1, 1), (1, 0)) * (len(positions) // 4)
+        ),
+    ).tobytes()
+    indices_bytes = array.array(
+        "H",
+        itertools.chain.from_iterable(
+            (
+                (i + 0, i + 1, i + 2, i + 2, i + 3, i + 0)
+                for i in range(len(positions))[::4]
+            )
+        ),
+    ).tobytes()
+    positions_bytes = array.array(
+        "f",
+        itertools.chain.from_iterable(
+            ((x / 480 * 2 - 1, y / 320 * 2 - 1) for x, y in positions)
+        ),
+    ).tobytes()
+    index_buffer = app.new_buffer(
+        byte_count=len(indices_bytes), usage=BufferUsage.INDEX
+    )
+    positions_buffer = app.new_buffer(
+        byte_count=len(positions_bytes), usage=BufferUsage.VERTEX
+    )
+    texcoords_buffer = app.new_buffer(
+        byte_count=len(texcoord_bytes), usage=BufferUsage.VERTEX
+    )
+
+    with open("tests/test_texture.png", "rb") as file:
+        png_reader = png.Reader(file=file)
+        app.new_memory_set(
+            {
+                color_target_image: graphics.MemoryType.DeviceOptimal,
+                test_texture_image: graphics.MemoryType.DeviceOptimal,
+                test_texture_buffer: graphics.MemoryType.Uploadable,
+                index_buffer: graphics.MemoryType.Uploadable,
+                positions_buffer: graphics.MemoryType.Uploadable,
+                texcoords_buffer: graphics.MemoryType.Uploadable,
+            },
+            initial_values={
+                test_texture_buffer: bytes(
+                    itertools.chain.from_iterable(png_reader.asRGBA8()[2])
+                ),
+                index_buffer: indices_bytes,
+                positions_buffer: positions_bytes,
+                texcoords_buffer: texcoord_bytes,
+            },
+        )
+    test_texture_view = app.new_image_view(
+        image=test_texture_image,
+        format=Format.R8G8B8A8_SRGB,
+        mip_count=texture_mip_count,
+    )
+    sampler = app.new_sampler(min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR)
+    descriptor_set_layout = app.new_descriptor_set_layout(immutable_samplers=[sampler])
+    descriptor_pool = app.new_descriptor_pool()
+    test_texture_descriptor_set = app.allocate_descriptor_set(
+        descriptor_pool=descriptor_pool, descriptor_set_layouts=[descriptor_set_layout]
+    )[0]
+    app.update_descriptor_sets(
+        [
+            WriteDescriptorImage(
+                descriptor_set=test_texture_descriptor_set,
+                binding=0,
+                image_views_and_layouts=[(test_texture_view, ImageLayout.SHADER)],
+            )
+        ]
+    )
+
     render_pass = app.new_render_pass(
         attachments=[
             AttachmentDescription(
@@ -143,23 +267,33 @@ def test_triangle(test_app):
             SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
         ],
     )
-    image_view = app.new_image_view(image=image, format=Format.R8G8B8A8_SRGB)
+    color_target_view = app.new_image_view(
+        image=color_target_image, format=Format.R8G8B8A8_SRGB
+    )
     framebuffer = app.new_framebuffer(
         render_pass=render_pass,
-        attachments=[image_view],
+        attachments=[color_target_view],
         width=test_data.width,
         height=test_data.height,
         layers=1,
     )
-    pipeline_layout = app.new_pipeline_layout()
+    pipeline_layout = app.new_pipeline_layout([descriptor_set_layout])
     shader_set = app.new_shader_set(
-        "tests/triangle.vert.glsl", "tests/triangle.frag.glsl"
+        "tests/texture_test.vert.glsl", "tests/texture_test.frag.glsl"
     )
     pipeline_description = GraphicsPipelineDescription(
         pipeline_layout=pipeline_layout,
         render_pass=render_pass,
-        vertex_shader=shader_set.triangle_vert,
-        fragment_shader=shader_set.triangle_frag,
+        vertex_shader=shader_set.texture_test_vert,
+        fragment_shader=shader_set.texture_test_frag,
+        vertex_attributes=[
+            VertexAttribute(location=0, binding=0, format=Format.R32G32_FLOAT),
+            VertexAttribute(location=1, binding=1, format=Format.R32G32_FLOAT),
+        ],
+        vertex_bindings=[
+            VertexBinding(binding=0, stride=8),
+            VertexBinding(binding=1, stride=8),
+        ],
         width=test_data.width,
         height=test_data.height,
     )
@@ -168,6 +302,48 @@ def test_triangle(test_app):
     with graphics.CommandBufferBuilder(
         test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
     ) as command_buffer_builder:
+        command_buffer_builder.pipeline_barrier(
+            image=test_texture_image,
+            mip_count=texture_mip_count,
+            old_layout=ImageLayout.UNDEFINED,
+            new_layout=ImageLayout.TRANSFER_DESTINATION,
+        )
+
+        command_buffer_builder.copy_buffer_to_image(
+            buffer=test_texture_buffer,
+            image=test_texture_image,
+            width=texture_size,
+            height=texture_size,
+        )
+
+        for source_level in range(texture_mip_count - 1):
+            destination_level = source_level + 1
+            command_buffer_builder.pipeline_barrier(
+                image=test_texture_image,
+                base_mip_level=source_level,
+                mip_count=1,
+                old_layout=ImageLayout.TRANSFER_DESTINATION,
+                new_layout=ImageLayout.TRANSFER_SOURCE,
+            )
+
+            command_buffer_builder.blit_image(
+                source_image=test_texture_image,
+                source_subresource_index=source_level,
+                source_width=texture_size >> source_level,
+                source_height=texture_size >> source_level,
+                destination_image=test_texture_image,
+                destination_subresource_index=destination_level,
+                destination_width=texture_size >> destination_level,
+                destination_height=texture_size >> destination_level,
+            )
+
+        command_buffer_builder.pipeline_barrier(
+            image=test_texture_image,
+            base_mip_level=0,
+            mip_count=texture_mip_count,
+            old_layout=ImageLayout.UNDEFINED,
+            new_layout=ImageLayout.SHADER,
+        )
         command_buffer_builder.begin_render_pass(
             render_pass=render_pass,
             framebuffer=framebuffer,
@@ -177,144 +353,122 @@ def test_triangle(test_app):
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
+        command_buffer_builder.bind_descriptor_sets(
+            pipeline_layout=pipeline_layout,
+            descriptor_sets=[test_texture_descriptor_set],
+        )
 
-        command_buffer_builder.draw(vertex_count=3, instance_count=1)
+        command_buffer_builder.bind_index_buffer(
+            buffer=index_buffer, index_type=IndexType.UINT16
+        )
+        command_buffer_builder.bind_vertex_buffers([positions_buffer, texcoords_buffer])
+        command_buffer_builder.draw_indexed(index_count=len(indices_bytes) // 2)
 
         command_buffer_builder.end_render_pass()
 
         command_buffer_builder.copy_image_to_buffer(
-            image=image,
+            image=color_target_image,
             buffer=test_data.readback_buffer,
             width=test_data.width,
             height=test_data.height,
         )
 
 
-def test_clear(test_app):
-    test_data, app = test_app
-    clear_color = [5 / 255, 144 / 255, 51 / 255, 1.0]
-    image = app.new_render_target(
-        format=Format.R8G8B8A8_UNORM,
-        usage=ImageUsage.TRANSFER_DESTINATION | ImageUsage.TRANSFER_SOURCE,
-        width=test_data.width,
-        height=test_data.height,
-    )
-    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
-
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
-    ) as command_buffer_builder:
-        command_buffer_builder.pipeline_barrier(
-            image=image, new_layout=ImageLayout.TRANSFER_DESTINATION
-        )
-
-        command_buffer_builder.clear_color_image(image=image, color=clear_color)
-
-        command_buffer_builder.pipeline_barrier(
-            image=image,
-            old_layout=ImageLayout.TRANSFER_DESTINATION,
-            new_layout=ImageLayout.TRANSFER_SOURCE,
-        )
-
-        command_buffer_builder.copy_image_to_buffer(
-            image=image,
-            width=test_data.width,
-            height=test_data.height,
-            buffer=test_data.readback_buffer,
-        )
-
-
-@pytest.fixture(name="test_cube_app")
-def test_cube_app_fixture(test_app):
-    test_data, app = test_app
-    cube_resources = {
-        "color_target": app.new_render_target(
-            format=Format.R8G8B8A8_SRGB,
-            usage=ImageUsage.COLOR | ImageUsage.TRANSFER_SOURCE,
-            width=test_data.width,
-            height=test_data.height,
-        ),
-        "depth_target": app.new_render_target(
-            format=Format.D24X8,
-            usage=ImageUsage.DEPTH,
-            width=test_data.width,
-            height=test_data.height,
-        ),
-        "index_buffer": app.new_buffer(
-            byte_count=len(CUBE_INDICES.tobytes()), usage=BufferUsage.INDEX
-        ),
-        "positions_buffer": app.new_buffer(
-            byte_count=len(CUBE_POSITIONS.tobytes()), usage=BufferUsage.VERTEX
-        ),
-        "normals_buffer": app.new_buffer(
-            byte_count=len(CUBE_NORMALS.tobytes()), usage=BufferUsage.VERTEX
-        ),
-        "render_pass": app.new_render_pass(
-            attachments=[
-                AttachmentDescription(
-                    format=Format.R8G8B8A8_SRGB,
-                    load_op=LoadOp.CLEAR,
-                    store_op=StoreOp.STORE,
-                    final_layout=ImageLayout.TRANSFER_SOURCE,
-                ),
-                AttachmentDescription(
-                    format=Format.D24X8, load_op=LoadOp.CLEAR, store_op=StoreOp.DISCARD
-                ),
-            ],
-            subpass_descriptions=[
-                SubpassDescription(
-                    color_attachments=[(0, ImageLayout.COLOR)], depth_attachment=1
-                )
-            ],
-        ),
-    }
-
-    app.new_memory_set(
-        {
-            cube_resources["color_target"]: graphics.MemoryType.DeviceOptimal,
-            cube_resources["depth_target"]: graphics.MemoryType.LazilyAllocated,
-            cube_resources["index_buffer"]: graphics.MemoryType.Uploadable,
-            cube_resources["positions_buffer"]: graphics.MemoryType.Uploadable,
-            cube_resources["normals_buffer"]: graphics.MemoryType.Uploadable,
-        },
-        initial_values={
-            cube_resources["index_buffer"]: CUBE_INDICES.tobytes(),
-            cube_resources["positions_buffer"]: CUBE_POSITIONS.tobytes(),
-            cube_resources["normals_buffer"]: CUBE_NORMALS.tobytes(),
-        },
-    )
-    cube_resources.update(
-        {
-            "color_target_view": app.new_image_view(
-                image=cube_resources["color_target"],
+def cube_app_test(method):
+    @AppTest(name=method.__name__)
+    def wrapper(app, test_data):
+        cube_resources = {
+            "color_target": app.new_image(
                 format=Format.R8G8B8A8_SRGB,
-                aspect=ImageAspect.COLOR,
+                usage=ImageUsage.COLOR_ATTACHMENT | ImageUsage.TRANSFER_SOURCE,
+                width=test_data.width,
+                height=test_data.height,
             ),
-            "depth_target_view": app.new_image_view(
-                image=cube_resources["depth_target"],
+            "depth_target": app.new_image(
                 format=Format.D24X8,
-                aspect=ImageAspect.DEPTH,
+                usage=ImageUsage.DEPTH_ATTACHMENT,
+                width=test_data.width,
+                height=test_data.height,
+            ),
+            "index_buffer": app.new_buffer(
+                byte_count=len(CUBE_INDICES.tobytes()), usage=BufferUsage.INDEX
+            ),
+            "positions_buffer": app.new_buffer(
+                byte_count=len(CUBE_POSITIONS.tobytes()), usage=BufferUsage.VERTEX
+            ),
+            "normals_buffer": app.new_buffer(
+                byte_count=len(CUBE_NORMALS.tobytes()), usage=BufferUsage.VERTEX
+            ),
+            "render_pass": app.new_render_pass(
+                attachments=[
+                    AttachmentDescription(
+                        format=Format.R8G8B8A8_SRGB,
+                        load_op=LoadOp.CLEAR,
+                        store_op=StoreOp.STORE,
+                        final_layout=ImageLayout.TRANSFER_SOURCE,
+                    ),
+                    AttachmentDescription(
+                        format=Format.D24X8,
+                        load_op=LoadOp.CLEAR,
+                        store_op=StoreOp.DISCARD,
+                    ),
+                ],
+                subpass_descriptions=[
+                    SubpassDescription(
+                        color_attachments=[(0, ImageLayout.COLOR)], depth_attachment=1
+                    )
+                ],
             ),
         }
-    )
 
-    cube_resources["framebuffer"] = app.new_framebuffer(
-        render_pass=cube_resources["render_pass"],
-        attachments=[
-            cube_resources["color_target_view"],
-            cube_resources["depth_target_view"],
-        ],
-        width=test_data.width,
-        height=test_data.height,
-        layers=1,
-    )
+        app.new_memory_set(
+            {
+                cube_resources["color_target"]: graphics.MemoryType.DeviceOptimal,
+                cube_resources["depth_target"]: graphics.MemoryType.LazilyAllocated,
+                cube_resources["index_buffer"]: graphics.MemoryType.Uploadable,
+                cube_resources["positions_buffer"]: graphics.MemoryType.Uploadable,
+                cube_resources["normals_buffer"]: graphics.MemoryType.Uploadable,
+            },
+            initial_values={
+                cube_resources["index_buffer"]: CUBE_INDICES.tobytes(),
+                cube_resources["positions_buffer"]: CUBE_POSITIONS.tobytes(),
+                cube_resources["normals_buffer"]: CUBE_NORMALS.tobytes(),
+            },
+        )
+        cube_resources.update(
+            {
+                "color_target_view": app.new_image_view(
+                    image=cube_resources["color_target"],
+                    format=Format.R8G8B8A8_SRGB,
+                    aspect=ImageAspect.COLOR,
+                ),
+                "depth_target_view": app.new_image_view(
+                    image=cube_resources["depth_target"],
+                    format=Format.D24X8,
+                    aspect=ImageAspect.DEPTH,
+                ),
+            }
+        )
 
-    return test_data, app, cube_resources
+        cube_resources["framebuffer"] = app.new_framebuffer(
+            render_pass=cube_resources["render_pass"],
+            attachments=[
+                cube_resources["color_target_view"],
+                cube_resources["depth_target_view"],
+            ],
+            width=test_data.width,
+            height=test_data.height,
+            layers=1,
+        )
+
+        method(app, test_data, cube_resources)
+
+    return wrapper
 
 
-def test_instanced_cubes(test_cube_app):
-    test_app, app, cube_resources = test_cube_app
-
+@cube_app_test
+def test_instanced_cubes(app, test_data, cube_resources):
+    # pylint: disable=too-many-locals
     instance_transforms = []
     instance_count = 2048
     for i in range(instance_count):
@@ -387,19 +541,19 @@ def test_instanced_cubes(test_cube_app):
                 ),
             ],
             depth_description=DepthDescription(test_enabled=True, write_enabled=True),
-            width=test_app.width,
-            height=test_app.height,
+            width=test_data.width,
+            height=test_data.height,
         )
     )
 
     with graphics.CommandBufferBuilder(
-        test_app.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
     ) as command_buffer_builder:
         command_buffer_builder.begin_render_pass(
             render_pass=cube_resources["render_pass"],
             framebuffer=cube_resources["framebuffer"],
-            width=test_app.width,
-            height=test_app.height,
+            width=test_data.width,
+            height=test_data.height,
             clear_values=[ClearValue(color=(0.5, 0.5, 0.5, 1.0)), ClearValue(depth=1)],
         )
 
@@ -423,14 +577,14 @@ def test_instanced_cubes(test_cube_app):
 
         command_buffer_builder.copy_image_to_buffer(
             image=cube_resources["color_target"],
-            buffer=test_app.readback_buffer,
-            width=test_app.width,
-            height=test_app.height,
+            buffer=test_data.readback_buffer,
+            width=test_data.width,
+            height=test_data.height,
         )
 
 
-def test_cube(test_cube_app):
-    test_data, app, cube_resources = test_cube_app
+@cube_app_test
+def test_cube(app, test_data, cube_resources):
     shader_set = app.new_shader_set("tests/cube.vert.glsl", "tests/cube.frag.glsl")
 
     pipeline = app.new_pipeline(
@@ -482,3 +636,115 @@ def test_cube(test_cube_app):
             width=test_data.width,
             height=test_data.height,
         )
+
+
+@AppTest()
+def test_triangle(app, test_data):
+    image = app.new_image(
+        format=Format.R8G8B8A8_SRGB,
+        usage=ImageUsage.COLOR_ATTACHMENT | ImageUsage.TRANSFER_SOURCE,
+        width=test_data.width,
+        height=test_data.height,
+    )
+    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
+    render_pass = app.new_render_pass(
+        attachments=[
+            AttachmentDescription(
+                format=Format.R8G8B8A8_SRGB,
+                load_op=LoadOp.CLEAR,
+                store_op=StoreOp.STORE,
+                final_layout=ImageLayout.TRANSFER_SOURCE,
+            )
+        ],
+        subpass_descriptions=[
+            SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
+        ],
+    )
+    image_view = app.new_image_view(image=image, format=Format.R8G8B8A8_SRGB)
+    framebuffer = app.new_framebuffer(
+        render_pass=render_pass,
+        attachments=[image_view],
+        width=test_data.width,
+        height=test_data.height,
+        layers=1,
+    )
+    pipeline_layout = app.new_pipeline_layout()
+    shader_set = app.new_shader_set(
+        "tests/triangle.vert.glsl", "tests/triangle.frag.glsl"
+    )
+    pipeline_description = GraphicsPipelineDescription(
+        pipeline_layout=pipeline_layout,
+        render_pass=render_pass,
+        vertex_shader=shader_set.triangle_vert,
+        fragment_shader=shader_set.triangle_frag,
+        width=test_data.width,
+        height=test_data.height,
+    )
+    pipeline = app.new_pipeline(pipeline_description)
+
+    with graphics.CommandBufferBuilder(
+        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    ) as command_buffer_builder:
+        command_buffer_builder.begin_render_pass(
+            render_pass=render_pass,
+            framebuffer=framebuffer,
+            width=test_data.width,
+            height=test_data.height,
+            clear_values=[ClearValue(color=(0, 0, 0, 0))],
+        )
+
+        command_buffer_builder.bind_pipeline(pipeline)
+
+        command_buffer_builder.draw(vertex_count=3, instance_count=1)
+
+        command_buffer_builder.end_render_pass()
+
+        command_buffer_builder.copy_image_to_buffer(
+            image=image,
+            buffer=test_data.readback_buffer,
+            width=test_data.width,
+            height=test_data.height,
+        )
+
+
+@AppTest()
+def test_clear(app, test_data):
+    clear_color = [5 / 255, 144 / 255, 51 / 255, 1.0]
+    image = app.new_image(
+        format=Format.R8G8B8A8_UNORM,
+        usage=ImageUsage.TRANSFER_DESTINATION | ImageUsage.TRANSFER_SOURCE,
+        width=test_data.width,
+        height=test_data.height,
+    )
+    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
+
+    with graphics.CommandBufferBuilder(
+        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    ) as command_buffer_builder:
+        command_buffer_builder.pipeline_barrier(
+            image=image, new_layout=ImageLayout.TRANSFER_DESTINATION
+        )
+
+        command_buffer_builder.clear_color_image(image=image, color=clear_color)
+
+        command_buffer_builder.pipeline_barrier(
+            image=image,
+            old_layout=ImageLayout.TRANSFER_DESTINATION,
+            new_layout=ImageLayout.TRANSFER_SOURCE,
+        )
+
+        command_buffer_builder.copy_image_to_buffer(
+            image=image,
+            width=test_data.width,
+            height=test_data.height,
+            buffer=test_data.readback_buffer,
+        )
+
+
+def test_errors():
+    app = graphics.App()
+    buffer = app.new_buffer(byte_count=0, usage=0)
+    with pytest.raises(graphics.vk.VkErrorOutOfDeviceMemory):
+        app.new_memory_set({buffer: graphics.MemoryType.DeviceOptimal})
+    app.close()
+    assert app.errors

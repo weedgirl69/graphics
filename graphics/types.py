@@ -7,6 +7,7 @@ import vulkan as vk
 class BufferUsage(IntEnum):
     INDEX = vk.VK_BUFFER_USAGE_INDEX_BUFFER_BIT
     TRANSFER_DESTINATION = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
+    TRANSFER_SOURCE = vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT
     VERTEX = vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
 
 
@@ -14,10 +15,20 @@ class CommandBufferUsage(IntEnum):
     ONE_TIME_SUBMIT = vk.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
 
 
+class DescriptorType(IntEnum):
+    COMBINED_IMAGE_SAMPLER = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+
+
+class Filter(IntEnum):
+    NEAREST = vk.VK_FILTER_NEAREST
+    LINEAR = vk.VK_FILTER_LINEAR
+
+
 class Format(IntEnum):
     D24X8 = vk.VK_FORMAT_X8_D24_UNORM_PACK32
     R8G8B8A8_UNORM = vk.VK_FORMAT_R8G8B8A8_UNORM
     R8G8B8A8_SRGB = vk.VK_FORMAT_R8G8B8A8_SRGB
+    R32G32_FLOAT = vk.VK_FORMAT_R32G32_SFLOAT
     R32G32B32_FLOAT = vk.VK_FORMAT_R32G32B32_SFLOAT
     R32G32B32A32_FLOAT = vk.VK_FORMAT_R32G32B32A32_SFLOAT
 
@@ -29,16 +40,18 @@ class ImageAspect(IntEnum):
 
 class ImageLayout(IntEnum):
     COLOR = vk.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    DEPTH = 3  # vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+    DEPTH = vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
     GENERAL = vk.VK_IMAGE_LAYOUT_GENERAL
-    UNDEFINED = vk.VK_IMAGE_LAYOUT_UNDEFINED
+    SHADER = vk.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     TRANSFER_SOURCE = vk.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
     TRANSFER_DESTINATION = vk.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    UNDEFINED = vk.VK_IMAGE_LAYOUT_UNDEFINED
 
 
 class ImageUsage(IntEnum):
-    COLOR = vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-    DEPTH = vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+    COLOR_ATTACHMENT = vk.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+    DEPTH_ATTACHMENT = vk.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+    SAMPLED = vk.VK_IMAGE_USAGE_SAMPLED_BIT
     TRANSFER_DESTINATION = vk.VK_IMAGE_USAGE_TRANSFER_DST_BIT
     TRANSFER_SOURCE = vk.VK_IMAGE_USAGE_TRANSFER_SRC_BIT
 
@@ -230,3 +243,19 @@ def VertexBinding(
     return vk.VkVertexInputBindingDescription(
         binding=binding, stride=stride, inputRate=input_rate
     )
+
+
+def WriteDescriptorImage(
+    *, descriptor_set, binding, image_views_and_layouts: List[Tuple[object, object]]
+):
+    # pylint: disable=invalid-name
+    return vk.VkWriteDescriptorSet(
+        dstSet=descriptor_set,
+        dstBinding=binding,
+        descriptorType=DescriptorType.COMBINED_IMAGE_SAMPLER,
+        pImageInfo=[
+            vk.VkDescriptorImageInfo(imageView=image_view, imageLayout=image_layout)
+            for image_view, image_layout in image_views_and_layouts
+        ],
+    )
+

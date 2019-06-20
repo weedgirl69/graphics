@@ -15,8 +15,11 @@
     "python.testing.nosetestsEnabled": false,
     "python.envFile": "${workspaceFolder}/.env",
     "python.testing.pyTestArgs": [
-        "tests",
-        "-rpP"
+        "--cov=graphics",
+        "--cov-fail-under=100",
+        "--cov-report=html",
+        "-rpP",
+        "tests/",
     ],
     "python.testing.promptToConfigure": false,
     "python.testing.pyTestEnabled": true,
