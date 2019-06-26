@@ -1,146 +1,309 @@
 import array
-import contextlib
+import dataclasses
 import itertools
 import math
+import pickle
+
+from typing import Optional
 import numpy as np
-import pytest
 import png
-import graphics
-from graphics.types import (
-    AttachmentDescription,
+import pytest
+import kt
+import kt.graphics_app
+from kt import (
     BufferUsage,
-    ClearValue,
     CommandBufferUsage,
-    DepthDescription,
     Filter,
     Format,
-    GraphicsPipelineDescription,
     ImageAspect,
     ImageLayout,
     ImageUsage,
     IndexType,
     LoadOp,
-    SubpassDescription,
     StoreOp,
-    VertexAttribute,
-    VertexBinding,
     VertexInputRate,
-    WriteDescriptorImage,
 )
+from kt.command_buffer_builder import CommandBufferBuilder
+import kt.mesh
 
-CUBE_INDICES = array.array(
-    "H",
-    itertools.chain.from_iterable(
-        ((i + 0, i + 1, i + 2, i + 2, i + 3, i + 0) for i in range(24)[::4])
-    ),
-)
 
-CUBE_POSITIONS = array.array(
-    "f",
-    itertools.chain(
-        (-1, 1, 1),
-        (-1, 1, -1),
-        (-1, -1, -1),
-        (-1, -1, 1),
-        (1, 1, -1),
-        (1, 1, 1),
-        (1, -1, 1),
-        (1, -1, -1),
-        (-1, -1, -1),
-        (1, -1, -1),
-        (1, -1, 1),
-        (-1, -1, 1),
-        (1, 1, -1),
-        (-1, 1, -1),
-        (-1, 1, 1),
-        (1, 1, 1),
-        (-1, 1, -1),
-        (1, 1, -1),
-        (1, -1, -1),
-        (-1, -1, -1),
-        (1, 1, 1),
-        (-1, 1, 1),
-        (-1, -1, 1),
-        (1, -1, 1),
-    ),
-)
-
-CUBE_NORMALS = array.array(
-    "f",
-    itertools.chain(
-        (-1, 0, 0) * 4,
-        (1, 0, 0) * 4,
-        (0, -1, 0) * 4,
-        (0, 1, 0) * 4,
-        (0, 0, -1) * 4,
-        (0, 0, 1) * 4,
-    ),
-)
+CUBE_MESH: Optional[kt.mesh.Mesh] = None
+with open("tests/cube.pickle", "rb") as cube_file:
+    CUBE_MESH = pickle.load(cube_file)
 
 
 class AppTest:
     # pylint: disable=too-few-public-methods
-    def __init__(self, name=None, width=420, height=420):
+    def __init__(
+        self, name=None, width: int = 420, height: int = 420, max_error: float = 0.0
+    ):
         self.name = name
         self.width = width
         self.height = height
+        self.max_error = max_error
 
     def __call__(self, method):
         if not self.name:
             self.name = method.__name__
 
+        @dataclasses.dataclass(frozen=True)
+        class TestData:
+            app: kt.graphics_app.GraphicsApp
+            width: int
+            height: int
+            readback_buffer: kt.Buffer
+            readback_buffer_memory: kt.vk.ffi.buffer
+            command_pool: kt.CommandPool
+            command_buffer: kt.CommandBuffer
+
         def wrapper():
             # pylint: disable=no-member
+            try:
+                with kt.graphics_app.run_graphics() as app:
 
-            class TestData:
-                # pylint: disable=too-few-public-methods
-                # pylint: disable=too-many-instance-attributes
-                def __init__(self, app, width, height):
-                    self.app = app
-                    self.width = width
-                    self.height = height
-                    self.readback_buffer = app.new_buffer(
+                    readback_buffer = app.new_buffer(
                         byte_count=self.width * self.height * 4,
                         usage=BufferUsage.TRANSFER_DESTINATION,
                     )
-                    mapped_memory = app.new_memory_set(
-                        {self.readback_buffer: graphics.MemoryType.Downloadable}
+                    mapped_memory = app.new_memory_set(downloadable=[readback_buffer])
+                    readback_buffer_memory = mapped_memory[readback_buffer]
+                    command_pool = app.new_command_pool()
+                    command_buffer = app.allocate_command_buffer(command_pool)
+
+                    method(
+                        app,
+                        TestData(
+                            app,
+                            self.width,
+                            self.height,
+                            readback_buffer,
+                            readback_buffer_memory,
+                            command_pool,
+                            command_buffer,
+                        ),
                     )
-                    self.readback_buffer_memory = mapped_memory[self.readback_buffer]
-                    self.command_pool = app.new_command_pool()
-                    self.command_buffer = app.allocate_command_buffer(self.command_pool)
 
-            with contextlib.closing(graphics.App()) as app:
-                test_data = TestData(app, self.width, self.height)
+                    app.graphics_queue.submit(command_buffer)
+                    app.graphics_queue.wait()
 
-                method(app, test_data)
+                    test_image_bytes = readback_buffer_memory[
+                        0 : self.width * self.height * 4
+                    ]
 
-                app.graphics_queue.submit(test_data.command_buffer)
-                app.graphics_queue.wait()
+                    golden_path = "tests/goldens/" + self.name[len("test_") :] + ".png"
+                    try:
+                        with open(golden_path, "rb") as file:
+                            png_reader = png.Reader(file=file)
+                            golden_image_bytes = png_reader.read_flat()[2].tobytes()
+                            mean_squared_error = sum(
+                                (a - b) ** 2
+                                for a, b in zip(golden_image_bytes, test_image_bytes)
+                            ) / len(golden_image_bytes)
+                            assert mean_squared_error <= self.max_error
+                    except FileNotFoundError:
+                        with open(golden_path, "wb") as file:
+                            png_writer = png.Writer(self.width, self.height, alpha=True)
+                            png_writer.write_array(file, test_image_bytes)
+            finally:
+                if app.errors:
+                    import pprint
 
-                test_image_bytes = test_data.readback_buffer_memory[
-                    0 : test_data.width * test_data.height * 4
-                ]
-
-                golden_path = "tests/goldens/" + self.name[len("test_") :] + ".png"
-                try:
-                    with open(golden_path, "rb") as file:
-                        png_reader = png.Reader(file=file)
-                        golden_image_bytes = png_reader.read_flat()[2].tobytes()
-                        assert golden_image_bytes == test_image_bytes
-                except FileNotFoundError:
-                    with open(golden_path, "wb") as file:
-                        png_writer = png.Writer(
-                            test_data.width, test_data.height, alpha=True
-                        )
-                        png_writer.write_array(file, test_image_bytes)
-
-            if app.errors:
-                for error in app.errors:
-                    print(error)
-                assert False
+                    pprint.pprint(app.errors)
+                    for error in app.errors:
+                        print(error)
+                    assert False
 
         return wrapper
+
+
+@AppTest(max_error=0.0005)
+def test_metallic_roughness(app, test_data):
+    with open("tests/lighting_mesh.pickle", "rb") as file:
+        lighting_mesh = pickle.load(file)
+        sample_count = 3
+        color_target_image = app.new_image(
+            format=Format.R8G8B8A8_SRGB,
+            usage=ImageUsage.COLOR_ATTACHMENT,
+            width=test_data.width * 2,
+            height=test_data.height * 2,
+            sample_count=sample_count,
+        )
+        depth_target_image = app.new_image(
+            format=Format.D24X8,
+            usage=ImageUsage.DEPTH_ATTACHMENT,
+            width=test_data.width * 2,
+            height=test_data.height * 2,
+            sample_count=sample_count,
+        )
+        resolve_target_image = app.new_image(
+            format=Format.R8G8B8A8_SRGB,
+            usage=ImageUsage.COLOR_ATTACHMENT | ImageUsage.TRANSFER_SOURCE,
+            width=test_data.width * 2,
+            height=test_data.height * 2,
+        )
+        downsampled_target_image = app.new_image(
+            format=Format.R8G8B8A8_SRGB,
+            usage=ImageUsage.TRANSFER_DESTINATION | ImageUsage.TRANSFER_SOURCE,
+            width=test_data.width,
+            height=test_data.height,
+        )
+
+        index_buffer = app.new_buffer(
+            byte_count=len(lighting_mesh.indices.tobytes()), usage=BufferUsage.INDEX
+        )
+        positions_buffer = app.new_buffer(
+            byte_count=len(lighting_mesh.positions.tobytes()), usage=BufferUsage.VERTEX
+        )
+        normals_buffer = app.new_buffer(
+            byte_count=len(lighting_mesh.normals.tobytes()), usage=BufferUsage.VERTEX
+        )
+        app.new_memory_set(
+            device_optimal=[resolve_target_image, downsampled_target_image],
+            lazily_allocated=[color_target_image, depth_target_image],
+            uploadable=[index_buffer, positions_buffer, normals_buffer],
+            initial_values={
+                index_buffer: lighting_mesh.indices.tobytes(),
+                positions_buffer: lighting_mesh.positions.tobytes(),
+                normals_buffer: lighting_mesh.normals.tobytes(),
+            },
+        )
+        render_pass = app.new_render_pass(
+            attachments=[
+                kt.new_attachment_description(
+                    format=Format.R8G8B8A8_SRGB,
+                    load_op=LoadOp.CLEAR,
+                    store_op=StoreOp.DISCARD,
+                    # final_layout=ImageLayout.TRANSFER_SOURCE,
+                    sample_count=sample_count,
+                ),
+                kt.new_attachment_description(
+                    format=Format.D24X8,
+                    load_op=LoadOp.CLEAR,
+                    store_op=StoreOp.DISCARD,
+                    sample_count=sample_count,
+                ),
+                kt.new_attachment_description(
+                    format=Format.R8G8B8A8_SRGB,
+                    load_op=LoadOp.DONT_CARE,
+                    store_op=StoreOp.STORE,
+                    final_layout=ImageLayout.TRANSFER_SOURCE,
+                ),
+            ],
+            subpass_descriptions=[
+                kt.new_subpass_description(
+                    color_attachments=[(0, ImageLayout.COLOR)],
+                    resolve_attachments=[(2, ImageLayout.TRANSFER_DESTINATION)],
+                    depth_attachment=1,
+                )
+            ],
+        )
+        color_target_view = app.new_image_view(
+            image=color_target_image,
+            format=Format.R8G8B8A8_SRGB,
+            aspect=ImageAspect.COLOR,
+        )
+        depth_target_view = app.new_image_view(
+            image=depth_target_image, format=Format.D24X8, aspect=ImageAspect.DEPTH
+        )
+        resolve_target_view = app.new_image_view(
+            image=resolve_target_image,
+            format=Format.R8G8B8A8_SRGB,
+            aspect=ImageAspect.COLOR,
+        )
+        framebuffer = app.new_framebuffer(
+            render_pass=render_pass,
+            attachments=[color_target_view, depth_target_view, resolve_target_view],
+            width=test_data.width * 2,
+            height=test_data.height * 2,
+            layers=1,
+        )
+        shader_set = app.new_shader_set(
+            "tests/position_normal.vert.glsl", "tests/metallic_roughness.frag.glsl"
+        )
+        pipeline_layout = app.new_pipeline_layout()
+        pipeline = app.new_pipeline(
+            kt.new_graphics_pipeline_description(
+                pipeline_layout=pipeline_layout,
+                render_pass=render_pass,
+                vertex_shader=shader_set.position_normal_vert,
+                fragment_shader=shader_set.metallic_roughness_frag,
+                vertex_attributes=[
+                    kt.new_vertex_attribute(
+                        location=0, binding=0, format=Format.R32G32B32_FLOAT
+                    ),
+                    kt.new_vertex_attribute(
+                        location=1, binding=1, format=Format.R32G32B32_FLOAT
+                    ),
+                ],
+                vertex_bindings=[
+                    kt.new_vertex_binding(binding=0, stride=12),
+                    kt.new_vertex_binding(binding=1, stride=12),
+                ],
+                multisample_description=kt.new_multisample_description(
+                    sample_count=sample_count
+                ),
+                depth_description=kt.new_depth_description(
+                    test_enabled=True, write_enabled=True
+                ),
+                width=test_data.width * 2,
+                height=test_data.height * 2,
+            )
+        )
+
+        with CommandBufferBuilder(
+            command_buffer=test_data.command_buffer,
+            usage=CommandBufferUsage.ONE_TIME_SUBMIT,
+        ) as command_buffer_builder:
+            command_buffer_builder.begin_render_pass(
+                render_pass=render_pass,
+                framebuffer=framebuffer,
+                width=test_data.width * 2,
+                height=test_data.height * 2,
+                clear_values=[
+                    kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
+                    kt.new_clear_value(depth=1),
+                ],
+            )
+
+            command_buffer_builder.bind_pipeline(pipeline)
+
+            command_buffer_builder.bind_index_buffer(
+                buffer=index_buffer, index_type=IndexType.UINT16
+            )
+            command_buffer_builder.bind_vertex_buffers(
+                [positions_buffer, normals_buffer]
+            )
+            command_buffer_builder.draw_indexed(index_count=len(lighting_mesh.indices))
+
+            command_buffer_builder.end_render_pass()
+
+            command_buffer_builder.pipeline_barrier(
+                image=downsampled_target_image,
+                new_layout=ImageLayout.TRANSFER_DESTINATION,
+            )
+
+            command_buffer_builder.blit_image(
+                source_image=resolve_target_image,
+                source_width=test_data.width * 2,
+                source_height=test_data.height * 2,
+                destination_image=downsampled_target_image,
+                destination_width=test_data.width,
+                destination_height=test_data.height,
+            )
+
+            command_buffer_builder.pipeline_barrier(
+                image=downsampled_target_image,
+                mip_count=1,
+                old_layout=ImageLayout.TRANSFER_DESTINATION,
+                new_layout=ImageLayout.TRANSFER_SOURCE,
+            )
+
+            command_buffer_builder.copy_image_to_buffer(
+                image=downsampled_target_image,
+                buffer=test_data.readback_buffer,
+                width=test_data.width,
+                height=test_data.height,
+            )
 
 
 @AppTest(width=480, height=320)
@@ -216,14 +379,13 @@ def test_texture(app, test_data):
     with open("tests/test_texture.png", "rb") as file:
         png_reader = png.Reader(file=file)
         app.new_memory_set(
-            {
-                color_target_image: graphics.MemoryType.DeviceOptimal,
-                test_texture_image: graphics.MemoryType.DeviceOptimal,
-                test_texture_buffer: graphics.MemoryType.Uploadable,
-                index_buffer: graphics.MemoryType.Uploadable,
-                positions_buffer: graphics.MemoryType.Uploadable,
-                texcoords_buffer: graphics.MemoryType.Uploadable,
-            },
+            device_optimal=[color_target_image, test_texture_image],
+            uploadable=[
+                test_texture_buffer,
+                index_buffer,
+                positions_buffer,
+                texcoords_buffer,
+            ],
             initial_values={
                 test_texture_buffer: bytes(
                     itertools.chain.from_iterable(png_reader.asRGBA8()[2])
@@ -241,12 +403,12 @@ def test_texture(app, test_data):
     sampler = app.new_sampler(min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR)
     descriptor_set_layout = app.new_descriptor_set_layout(immutable_samplers=[sampler])
     descriptor_pool = app.new_descriptor_pool()
-    test_texture_descriptor_set = app.allocate_descriptor_set(
+    test_texture_descriptor_set = app.allocate_descriptor_sets(
         descriptor_pool=descriptor_pool, descriptor_set_layouts=[descriptor_set_layout]
     )[0]
     app.update_descriptor_sets(
         [
-            WriteDescriptorImage(
+            kt.new_write_descriptor_image(
                 descriptor_set=test_texture_descriptor_set,
                 binding=0,
                 image_views_and_layouts=[(test_texture_view, ImageLayout.SHADER)],
@@ -256,7 +418,7 @@ def test_texture(app, test_data):
 
     render_pass = app.new_render_pass(
         attachments=[
-            AttachmentDescription(
+            kt.new_attachment_description(
                 format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
@@ -264,7 +426,7 @@ def test_texture(app, test_data):
             )
         ],
         subpass_descriptions=[
-            SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
+            kt.new_subpass_description(color_attachments=[(0, ImageLayout.COLOR)])
         ],
     )
     color_target_view = app.new_image_view(
@@ -281,26 +443,27 @@ def test_texture(app, test_data):
     shader_set = app.new_shader_set(
         "tests/texture_test.vert.glsl", "tests/texture_test.frag.glsl"
     )
-    pipeline_description = GraphicsPipelineDescription(
+    pipeline_description = kt.new_graphics_pipeline_description(
         pipeline_layout=pipeline_layout,
         render_pass=render_pass,
         vertex_shader=shader_set.texture_test_vert,
         fragment_shader=shader_set.texture_test_frag,
         vertex_attributes=[
-            VertexAttribute(location=0, binding=0, format=Format.R32G32_FLOAT),
-            VertexAttribute(location=1, binding=1, format=Format.R32G32_FLOAT),
+            kt.new_vertex_attribute(location=0, binding=0, format=Format.R32G32_FLOAT),
+            kt.new_vertex_attribute(location=1, binding=1, format=Format.R32G32_FLOAT),
         ],
         vertex_bindings=[
-            VertexBinding(binding=0, stride=8),
-            VertexBinding(binding=1, stride=8),
+            kt.new_vertex_binding(binding=0, stride=8),
+            kt.new_vertex_binding(binding=1, stride=8),
         ],
         width=test_data.width,
         height=test_data.height,
     )
     pipeline = app.new_pipeline(pipeline_description)
 
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    with CommandBufferBuilder(
+        command_buffer=test_data.command_buffer,
+        usage=CommandBufferUsage.ONE_TIME_SUBMIT,
     ) as command_buffer_builder:
         command_buffer_builder.pipeline_barrier(
             image=test_texture_image,
@@ -349,7 +512,7 @@ def test_texture(app, test_data):
             framebuffer=framebuffer,
             width=test_data.width,
             height=test_data.height,
-            clear_values=[ClearValue(color=(0, 0, 0, 0))],
+            clear_values=[kt.new_clear_value(color=(0, 0, 0, 0))],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -391,30 +554,30 @@ def cube_app_test(method):
                 height=test_data.height,
             ),
             "index_buffer": app.new_buffer(
-                byte_count=len(CUBE_INDICES.tobytes()), usage=BufferUsage.INDEX
+                byte_count=len(CUBE_MESH.indices.tobytes()), usage=BufferUsage.INDEX
             ),
             "positions_buffer": app.new_buffer(
-                byte_count=len(CUBE_POSITIONS.tobytes()), usage=BufferUsage.VERTEX
+                byte_count=len(CUBE_MESH.positions.tobytes()), usage=BufferUsage.VERTEX
             ),
             "normals_buffer": app.new_buffer(
-                byte_count=len(CUBE_NORMALS.tobytes()), usage=BufferUsage.VERTEX
+                byte_count=len(CUBE_MESH.normals.tobytes()), usage=BufferUsage.VERTEX
             ),
             "render_pass": app.new_render_pass(
                 attachments=[
-                    AttachmentDescription(
+                    kt.new_attachment_description(
                         format=Format.R8G8B8A8_SRGB,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.STORE,
                         final_layout=ImageLayout.TRANSFER_SOURCE,
                     ),
-                    AttachmentDescription(
+                    kt.new_attachment_description(
                         format=Format.D24X8,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.DISCARD,
                     ),
                 ],
                 subpass_descriptions=[
-                    SubpassDescription(
+                    kt.new_subpass_description(
                         color_attachments=[(0, ImageLayout.COLOR)], depth_attachment=1
                     )
                 ],
@@ -422,17 +585,17 @@ def cube_app_test(method):
         }
 
         app.new_memory_set(
-            {
-                cube_resources["color_target"]: graphics.MemoryType.DeviceOptimal,
-                cube_resources["depth_target"]: graphics.MemoryType.LazilyAllocated,
-                cube_resources["index_buffer"]: graphics.MemoryType.Uploadable,
-                cube_resources["positions_buffer"]: graphics.MemoryType.Uploadable,
-                cube_resources["normals_buffer"]: graphics.MemoryType.Uploadable,
-            },
+            device_optimal=[cube_resources["color_target"]],
+            uploadable=[
+                cube_resources["index_buffer"],
+                cube_resources["positions_buffer"],
+                cube_resources["normals_buffer"],
+            ],
+            lazily_allocated=[cube_resources["depth_target"]],
             initial_values={
-                cube_resources["index_buffer"]: CUBE_INDICES.tobytes(),
-                cube_resources["positions_buffer"]: CUBE_POSITIONS.tobytes(),
-                cube_resources["normals_buffer"]: CUBE_NORMALS.tobytes(),
+                cube_resources["index_buffer"]: CUBE_MESH.indices.tobytes(),
+                cube_resources["positions_buffer"]: CUBE_MESH.positions.tobytes(),
+                cube_resources["normals_buffer"]: CUBE_MESH.normals.tobytes(),
             },
         )
         cube_resources.update(
@@ -510,7 +673,7 @@ def test_instanced_cubes(app, test_data, cube_resources):
         byte_count=len(instance_transforms.tobytes()), usage=BufferUsage.VERTEX
     )
     app.new_memory_set(
-        {instance_buffer: graphics.MemoryType.Uploadable},
+        uploadable=[instance_buffer],
         initial_values={instance_buffer: instance_transforms.tobytes()},
     )
 
@@ -521,40 +684,52 @@ def test_instanced_cubes(app, test_data, cube_resources):
     float3_format = Format.R32G32B32_FLOAT
     float4_format = Format.R32G32B32A32_FLOAT
     pipeline = app.new_pipeline(
-        GraphicsPipelineDescription(
+        kt.new_graphics_pipeline_description(
             pipeline_layout=app.new_pipeline_layout(),
             render_pass=cube_resources["render_pass"],
             vertex_shader=shader_set.instanced_cube_vert,
             fragment_shader=shader_set.cube_frag,
             vertex_attributes=[
-                VertexAttribute(location=0, binding=0, format=float3_format),
-                VertexAttribute(location=1, binding=1, format=float3_format),
-                VertexAttribute(location=2, binding=2, format=float4_format, offset=0),
-                VertexAttribute(location=3, binding=2, format=float4_format, offset=16),
-                VertexAttribute(location=4, binding=2, format=float4_format, offset=32),
+                kt.new_vertex_attribute(location=0, binding=0, format=float3_format),
+                kt.new_vertex_attribute(location=1, binding=1, format=float3_format),
+                kt.new_vertex_attribute(
+                    location=2, binding=2, format=float4_format, offset=0
+                ),
+                kt.new_vertex_attribute(
+                    location=3, binding=2, format=float4_format, offset=16
+                ),
+                kt.new_vertex_attribute(
+                    location=4, binding=2, format=float4_format, offset=32
+                ),
             ],
             vertex_bindings=[
-                VertexBinding(binding=0, stride=12),
-                VertexBinding(binding=1, stride=12),
-                VertexBinding(
+                kt.new_vertex_binding(binding=0, stride=12),
+                kt.new_vertex_binding(binding=1, stride=12),
+                kt.new_vertex_binding(
                     binding=2, stride=48, input_rate=VertexInputRate.PER_INSTANCE
                 ),
             ],
-            depth_description=DepthDescription(test_enabled=True, write_enabled=True),
+            depth_description=kt.new_depth_description(
+                test_enabled=True, write_enabled=True
+            ),
             width=test_data.width,
             height=test_data.height,
         )
     )
 
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    with CommandBufferBuilder(
+        command_buffer=test_data.command_buffer,
+        usage=CommandBufferUsage.ONE_TIME_SUBMIT,
     ) as command_buffer_builder:
         command_buffer_builder.begin_render_pass(
             render_pass=cube_resources["render_pass"],
             framebuffer=cube_resources["framebuffer"],
             width=test_data.width,
             height=test_data.height,
-            clear_values=[ClearValue(color=(0.5, 0.5, 0.5, 1.0)), ClearValue(depth=1)],
+            clear_values=[
+                kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
+                kt.new_clear_value(depth=1),
+            ],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -588,34 +763,44 @@ def test_cube(app, test_data, cube_resources):
     shader_set = app.new_shader_set("tests/cube.vert.glsl", "tests/cube.frag.glsl")
 
     pipeline = app.new_pipeline(
-        GraphicsPipelineDescription(
+        kt.new_graphics_pipeline_description(
             pipeline_layout=app.new_pipeline_layout(),
             render_pass=cube_resources["render_pass"],
             vertex_shader=shader_set.cube_vert,
             fragment_shader=shader_set.cube_frag,
             vertex_attributes=[
-                VertexAttribute(location=0, binding=0, format=Format.R32G32B32_FLOAT),
-                VertexAttribute(location=1, binding=1, format=Format.R32G32B32_FLOAT),
+                kt.new_vertex_attribute(
+                    location=0, binding=0, format=Format.R32G32B32_FLOAT
+                ),
+                kt.new_vertex_attribute(
+                    location=1, binding=1, format=Format.R32G32B32_FLOAT
+                ),
             ],
             vertex_bindings=[
-                VertexBinding(binding=0, stride=12),
-                VertexBinding(binding=1, stride=12),
+                kt.new_vertex_binding(binding=0, stride=12),
+                kt.new_vertex_binding(binding=1, stride=12),
             ],
             width=test_data.width,
             height=test_data.height,
-            depth_description=DepthDescription(test_enabled=False, write_enabled=False),
+            depth_description=kt.new_depth_description(
+                test_enabled=False, write_enabled=False
+            ),
         )
     )
 
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    with CommandBufferBuilder(
+        command_buffer=test_data.command_buffer,
+        usage=CommandBufferUsage.ONE_TIME_SUBMIT,
     ) as command_buffer_builder:
         command_buffer_builder.begin_render_pass(
             render_pass=cube_resources["render_pass"],
             framebuffer=cube_resources["framebuffer"],
             width=test_data.width,
             height=test_data.height,
-            clear_values=[ClearValue(color=(0.5, 0.5, 0.5, 1.0)), ClearValue(depth=1)],
+            clear_values=[
+                kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
+                kt.new_clear_value(depth=1),
+            ],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -646,10 +831,10 @@ def test_triangle(app, test_data):
         width=test_data.width,
         height=test_data.height,
     )
-    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
+    app.new_memory_set(device_optimal=[image])
     render_pass = app.new_render_pass(
         attachments=[
-            AttachmentDescription(
+            kt.new_attachment_description(
                 format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
@@ -657,7 +842,7 @@ def test_triangle(app, test_data):
             )
         ],
         subpass_descriptions=[
-            SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
+            kt.new_subpass_description(color_attachments=[(0, ImageLayout.COLOR)])
         ],
     )
     image_view = app.new_image_view(image=image, format=Format.R8G8B8A8_SRGB)
@@ -672,7 +857,7 @@ def test_triangle(app, test_data):
     shader_set = app.new_shader_set(
         "tests/triangle.vert.glsl", "tests/triangle.frag.glsl"
     )
-    pipeline_description = GraphicsPipelineDescription(
+    pipeline_description = kt.new_graphics_pipeline_description(
         pipeline_layout=pipeline_layout,
         render_pass=render_pass,
         vertex_shader=shader_set.triangle_vert,
@@ -682,15 +867,16 @@ def test_triangle(app, test_data):
     )
     pipeline = app.new_pipeline(pipeline_description)
 
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    with CommandBufferBuilder(
+        command_buffer=test_data.command_buffer,
+        usage=CommandBufferUsage.ONE_TIME_SUBMIT,
     ) as command_buffer_builder:
         command_buffer_builder.begin_render_pass(
             render_pass=render_pass,
             framebuffer=framebuffer,
             width=test_data.width,
             height=test_data.height,
-            clear_values=[ClearValue(color=(0, 0, 0, 0))],
+            clear_values=[kt.new_clear_value(color=(0, 0, 0, 0))],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -716,10 +902,11 @@ def test_clear(app, test_data):
         width=test_data.width,
         height=test_data.height,
     )
-    app.new_memory_set({image: graphics.MemoryType.DeviceOptimal})
+    app.new_memory_set(device_optimal=[image])
 
-    with graphics.CommandBufferBuilder(
-        test_data.command_buffer, CommandBufferUsage.ONE_TIME_SUBMIT
+    with CommandBufferBuilder(
+        command_buffer=test_data.command_buffer,
+        usage=CommandBufferUsage.ONE_TIME_SUBMIT,
     ) as command_buffer_builder:
         command_buffer_builder.pipeline_barrier(
             image=image, new_layout=ImageLayout.TRANSFER_DESTINATION
@@ -742,9 +929,8 @@ def test_clear(app, test_data):
 
 
 def test_errors():
-    app = graphics.App()
-    buffer = app.new_buffer(byte_count=0, usage=0)
-    with pytest.raises(graphics.vk.VkErrorOutOfDeviceMemory):
-        app.new_memory_set({buffer: graphics.MemoryType.DeviceOptimal})
-    app.close()
+    with kt.graphics_app.run_graphics() as app:
+        buffer = app.new_buffer(byte_count=0, usage=0)
+        with pytest.raises(kt.vk.VkErrorOutOfDeviceMemory):
+            app.new_memory_set(device_optimal=[buffer])
     assert app.errors
