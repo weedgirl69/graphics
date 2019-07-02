@@ -1,6 +1,6 @@
-import json
-
 from __future__ import annotations
+
+import json
 import dataclasses
 import typing
 
@@ -41,21 +41,73 @@ class GltfModel:
         gltf_json = json.load(file)
         scenes_json = gltf_json["scenes"]
 
-        gltf_node_index_to_flat_node_index = []
-        nodes = []
-
-        def flatten_node_json(node_json):
-
+        def get_transform(node_json):
             if "matrix" in node_json:
-                pass
-            elif (
-                "scale" in node_json
-                or "rotation" in node_json
-                or "translation" in node_json
+                matrix_json = node_json["matrix"]
+                matrix = tuple(
+                    matrix_json[0:3]
+                    + matrix_json[4:7]
+                    + matrix_json[8:11]
+                    + matrix_json[12:15]
+                )
+                if matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0):
+                    return None
+                return matrix
+
+            scale = tuple(node_json.get("scale", (1.0, 1.0, 1.0)))
+            rotation = tuple(node_json.get("rotation", (0.0, 0.0, 0.0, 1.0)))
+            translation = tuple(node_json.get("translation", (0.0, 0.0, 0.0)))
+
+            if (
+                scale == (1.0, 1.0, 1.0)
+                and rotation == (0.0, 0.0, 0.0, 1.0)
+                and translation == (0.0, 0.0, 0.0)
             ):
-                pass
-            else:
-                continue
+                return None
 
-            # nodes.append(Node(
+            return ScaleRotationTranslation(
+                scale=scale, rotation=rotation, translation=translation
+            )
 
+        node_transforms = []
+        node_index_to_flattened_node_index = {}
+        for node_index, node_json in enumerate(gltf_json["nodes"]):
+            transform = get_transform(node_json)
+            if transform:
+                node_index_to_flattened_node_index[node_index] = len(node_transforms)
+                node_transforms.append(Node(transform=transform))
+
+        transform_stages = []
+        mesh_index_to_flattene_node_indices = [[]] * len(gltf_json["meshes"])
+
+        def visit(
+            node_indices, parent_index: typing.Optional[int] = None, depth: int = 0
+        ):
+            for node_index in node_indices:
+                current_depth = depth
+                current_parent_index = None
+                if node_index in node_index_to_flattened_node_index:
+                    while len(transform_stages) <= current_depth:
+                        transform_stages.append([])
+
+                    # if parent_index:
+                    transform_stages[current_depth].append((parent_index, node_index))
+
+                    current_parent_index = node_index
+                    current_depth += 1
+
+                node_json = gltf_json["nodes"][node_index]
+
+                if "mesh" in node_json:
+                    mesh_index_to_flattene_node_indices[node_json["mesh"]].append(
+                        node_index_to_flattened_node_index[parent_index]
+                    )
+
+                visit(
+                    node_json.get("children", []),
+                    parent_index=current_parent_index,
+                    depth=current_depth,
+                )
+
+        visit(gltf_json["scenes"][0]["nodes"])
+        print(mesh_index_to_flattene_node_indices)

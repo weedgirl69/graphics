@@ -1,6 +1,6 @@
 import collections
 from enum import Enum, IntEnum
-from typing import List, NewType, Optional, Tuple, Union
+from typing import List, NewType, Optional, Tuple
 import vulkan as vk
 
 AttachmentDescription = NewType("AttachmentDescription", object)
@@ -30,22 +30,6 @@ SubpassDescription = NewType("SubpassDescription", object)
 VertexAttribute = NewType("VertexAttribute", object)
 VertexBinding = NewType("VertexBinding", object)
 WriteDescriptorImage = NewType("WriteDescriptorImage", object)
-
-
-VulkanResource = Union[
-    Buffer,
-    CommandPool,
-    DescriptorPool,
-    DescriptorSetLayout,
-    Framebuffer,
-    Image,
-    ImageView,
-    Pipeline,
-    PipelineLayout,
-    RenderPass,
-    Sampler,
-    ShaderModule,
-]
 
 
 class BufferUsage(IntEnum):

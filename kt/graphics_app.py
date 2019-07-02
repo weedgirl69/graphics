@@ -29,6 +29,21 @@ IMAGE_TYPE = vk.ffi.typeof("struct VkImage_T *")
 
 VulkanResourceType = TypeVar("VulkanResourceType")
 
+VulkanResource = Union[
+    kt.Buffer,
+    kt.CommandPool,
+    kt.DescriptorPool,
+    kt.DescriptorSetLayout,
+    kt.Framebuffer,
+    kt.Image,
+    kt.ImageView,
+    kt.Pipeline,
+    kt.PipelineLayout,
+    kt.RenderPass,
+    kt.Sampler,
+    kt.ShaderModule,
+]
+
 
 class Queue:
     def __init__(self, queue: Any) -> None:
@@ -45,7 +60,6 @@ class Queue:
 
 @dataclasses.dataclass(frozen=True)
 class VulkanContext:
-    # pylint: disable=too-few-public-methods
     instance: kt.Instance
     physical_device: kt.PhysicalDevice
     graphics_queue_family_index: int
@@ -56,7 +70,7 @@ class VulkanContext:
     memory_types: Dict[kt.MemoryType, int]
     errors: List[str]
     allocations: List[kt.DeviceMemory]
-    resources: List[kt.VulkanResource]
+    resources: List[VulkanResource]
 
 
 def _add_to_resources(
@@ -641,7 +655,7 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
     )
 
     allocations: List[kt.DeviceMemory] = []
-    resources: List[kt.VulkanResource] = []
+    resources: List[VulkanResource] = []
 
     try:
         yield GraphicsApp(
@@ -661,7 +675,7 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
         )
     finally:
         destructors: Dict[
-            kt.VulkanResource, Callable[[kt.Device, kt.VulkanResource, object], None]
+            VulkanResource, Callable[[kt.Device, VulkanResource, object], None]
         ] = {}
         for resource in resources:
             resource_type = vk.ffi.typeof(resource)

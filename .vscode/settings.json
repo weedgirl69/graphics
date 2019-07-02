@@ -23,13 +23,12 @@
     "python.testing.nosetestsEnabled": false,
     "python.envFile": "${workspaceFolder}/.env",
     "python.testing.pyTestEnabled": true,
-    "python.testing.pyTestArgs": [
-        "-n",
-        "4",
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
         "--cov=kt",
         "--cov-report=html",
         "-rpP",
-        "tests/",
+        "tests/"
     ],
-    "python.testing.unittestEnabled": false
+    "python.testing.pytestEnabled": true
 }
