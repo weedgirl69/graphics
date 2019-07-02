@@ -39,7 +39,6 @@ class Node:
 class GltfModel:
     def __init__(self, file):
         gltf_json = json.load(file)
-        scenes_json = gltf_json["scenes"]
 
         def get_transform(node_json):
             if "matrix" in node_json:
@@ -54,36 +53,28 @@ class GltfModel:
                     return None
                 return matrix
 
-            scale = tuple(node_json.get("scale", (1.0, 1.0, 1.0)))
-            rotation = tuple(node_json.get("rotation", (0.0, 0.0, 0.0, 1.0)))
-            translation = tuple(node_json.get("translation", (0.0, 0.0, 0.0)))
-
-            if (
-                scale == (1.0, 1.0, 1.0)
-                and rotation == (0.0, 0.0, 0.0, 1.0)
-                and translation == (0.0, 0.0, 0.0)
-            ):
-                return None
-
-            return ScaleRotationTranslation(
-                scale=scale, rotation=rotation, translation=translation
-            )
+            # scale = tuple(node_json.get("scale", (1.0, 1.0, 1.0)))
+            # rotation = tuple(node_json.get("rotation", (0.0, 0.0, 0.0, 1.0)))
+            # translation = tuple(node_json.get("translation", (0.0, 0.0, 0.0)))
+            raise RuntimeError("unimplemented")
 
         node_transforms = []
-        node_index_to_flattened_node_index = {}
-        for node_index, node_json in enumerate(gltf_json["nodes"]):
+        node_index_to_flattened_node_index = []
+        for node_json in gltf_json["nodes"]:
             transform = get_transform(node_json)
+            node_index_to_flattened_node_index.append(len(node_transforms))
             if transform:
-                node_index_to_flattened_node_index[node_index] = len(node_transforms)
-                node_transforms.append(Node(transform=transform))
+                node_transforms.append(transform)
 
         transform_stages = []
-        mesh_index_to_flattene_node_indices = [[]] * len(gltf_json["meshes"])
+        mesh_index_to_flattened_node_indices = [[]] * len(gltf_json["meshes"])
+        node_index_to_parent_index = [None] * len(gltf_json["nodes"])
 
         def visit(
             node_indices, parent_index: typing.Optional[int] = None, depth: int = 0
         ):
             for node_index in node_indices:
+                node_index_to_parent_index[node_index] = parent_index
                 current_depth = depth
                 current_parent_index = None
                 if node_index in node_index_to_flattened_node_index:
@@ -99,7 +90,7 @@ class GltfModel:
                 node_json = gltf_json["nodes"][node_index]
 
                 if "mesh" in node_json:
-                    mesh_index_to_flattene_node_indices[node_json["mesh"]].append(
+                    mesh_index_to_flattened_node_indices[node_json["mesh"]].append(
                         node_index_to_flattened_node_index[parent_index]
                     )
 
