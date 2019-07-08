@@ -114,7 +114,7 @@ class VertexInputRate(IntEnum):
 
 def new_attachment_description(
     *,
-    format: Format,
+    pixel_format: Format,
     sample_count: int = 0,
     load_op: LoadOp = LoadOp.DONT_CARE,
     store_op: StoreOp = StoreOp.DISCARD,
@@ -123,7 +123,7 @@ def new_attachment_description(
 ) -> AttachmentDescription:
     return AttachmentDescription(
         vk.VkAttachmentDescription(
-            format=format,
+            format=pixel_format,
             samples=1 << sample_count,
             loadOp=load_op,
             storeOp=store_op,
@@ -292,11 +292,11 @@ def new_subpass_description(
 
 
 def new_vertex_attribute(
-    *, location: int, binding: int, format: Format, offset: int = 0
+    *, location: int, binding: int, pixel_format: Format, offset: int = 0
 ) -> VertexAttribute:
     return VertexAttribute(
         vk.VkVertexInputAttributeDescription(
-            location=location, binding=binding, format=format, offset=offset
+            location=location, binding=binding, format=pixel_format, offset=offset
         )
     )
 
@@ -331,4 +331,3 @@ def new_write_descriptor_image(
             ],
         )
     )
-

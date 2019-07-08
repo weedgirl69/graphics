@@ -1,104 +1,273 @@
 from __future__ import annotations
-
+import base64
+import collections
 import json
 import dataclasses
 import typing
+import kt.mesh
 
-
-@dataclasses.dataclass(frozen=True)
-class Bounds:
-    min_extents: typing.Tuple[float, float, float]
-    max_extents: typing.Tuple[float, float, float]
-
-
-AffineMatrix = typing.Tuple[
+AffineTransform = typing.Tuple[
     float, float, float, float, float, float, float, float, float, float, float, float
 ]
 
 
 @dataclasses.dataclass(frozen=True)
-class ScaleRotationTranslation:
-    scale: typing.Tuple[float, float, float] = dataclasses.field(
-        default=(1.0, 1.0, 1.0)
-    )
-    rotation: typing.Tuple[float, float, float, float] = dataclasses.field(
-        default=(0.0, 0.0, 0.0, 1.0)
-    )
-    translation: typing.Tuple[float, float, float] = dataclasses.field(
-        default=(0.0, 0.0, 0.0)
+class TransformSequence:
+    node_index_to_flattened_index: typing.Dict[int, int]
+    transform_source_index_to_destination_index: typing.List[typing.Tuple[int, int]]
+
+
+@dataclasses.dataclass(frozen=True)
+class GltfScene:
+    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]]
+    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]]
+    transform_sequence: TransformSequence
+    mesh_offsets: typing.List[int]
+
+
+def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
+    def get_transform(node_json: typing.Dict) -> AffineTransform:
+        if "matrix" in node_json:
+            matrix_json = [float(component) for component in node_json["matrix"]]
+            return (
+                matrix_json[0],
+                matrix_json[1],
+                matrix_json[2],
+                matrix_json[4],
+                matrix_json[5],
+                matrix_json[6],
+                matrix_json[8],
+                matrix_json[9],
+                matrix_json[10],
+                matrix_json[12],
+                matrix_json[13],
+                matrix_json[14],
+            )
+
+        scale_x, scale_y, scale_z = node_json.get("scale", (1.0, 1.0, 1.0))
+        rotation_x, rotation_y, rotation_z, rotation_w = node_json.get(
+            "rotation", (0.0, 0.0, 0.0, 1.0)
+        )
+        translation_x, translation_y, translation_z = node_json.get(
+            "translation", (0.0, 0.0, 0.0)
+        )
+
+        # pylint: disable = invalid-name
+        xx = rotation_x * rotation_x
+        xy = rotation_x * rotation_y
+        xz = rotation_x * rotation_z
+        xw = rotation_x * rotation_w
+
+        yy = rotation_y * rotation_y
+        yz = rotation_y * rotation_z
+        yw = rotation_y * rotation_w
+
+        zz = rotation_z * rotation_z
+        zw = rotation_z * rotation_w
+
+        m00 = 1 - 2 * (yy + zz)
+        m01 = 2 * (xy - zw)
+        m02 = 2 * (xz + yw)
+
+        m10 = 2 * (xy + zw)
+        m11 = 1 - 2 * (xx + zz)
+        m12 = 2 * (yz - xw)
+
+        m20 = 2 * (xz - yw)
+        m21 = 2 * (yz + xw)
+        m22 = 1 - 2 * (xx + yy)
+
+        return (
+            scale_x * m00,
+            scale_y * m01,
+            scale_z * m02,
+            translation_x,
+            scale_x * m10,
+            scale_y * m11,
+            scale_z * m12,
+            translation_y,
+            scale_x * m20,
+            scale_y * m21,
+            scale_z * m22,
+            translation_z,
+        )
+
+    return [get_transform(node_json) for node_json in gltf_json["nodes"]]
+
+
+def _get_node_index_to_parent_index(
+    *,
+    nodes_json: typing.Dict,
+    node_indices: typing.List[int],
+    parent_index: typing.Optional[int] = None,
+    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]] = None,
+) -> typing.Dict[int, typing.Optional[int]]:
+    if not node_index_to_parent_index:
+        node_index_to_parent_index = {}
+
+    for node_index in node_indices:
+        node_index_to_parent_index[node_index] = parent_index
+        _get_node_index_to_parent_index(
+            nodes_json=nodes_json[node_index].get("children", []),
+            node_indices=node_indices,
+            parent_index=node_index,
+            node_index_to_parent_index=node_index_to_parent_index,
+        )
+
+    return node_index_to_parent_index
+
+
+def _get_mesh_index_to_node_indices(
+    *,
+    nodes_json: typing.Dict,
+    node_indices: typing.List[int],
+    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]] = None,
+) -> typing.Dict[int, typing.List[int]]:
+    if not mesh_index_to_node_indices:
+        mesh_index_to_node_indices = collections.defaultdict(list)
+
+    for node_index in node_indices:
+        node_json = nodes_json[node_index]
+
+        if "mesh" in node_json:
+            mesh_index_to_node_indices[node_json["mesh"]].append(node_index)
+
+        _get_mesh_index_to_node_indices(
+            nodes_json=node_json.get("children", []),
+            node_indices=node_indices,
+            mesh_index_to_node_indices=mesh_index_to_node_indices,
+        )
+
+    return mesh_index_to_node_indices
+
+
+def _get_transform_sequence(
+    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]],
+    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]],
+) -> TransformSequence:
+    node_index_to_flattened_index: typing.Dict[int, int] = {}
+    transform_source_index_to_destination_index = []
+    current_instance_index = 0
+
+    def visit(node_index: int) -> None:
+        parent_index = node_index_to_parent_index[node_index]
+        if parent_index is not None:
+            if parent_index not in node_index_to_flattened_index:
+                node_index_to_flattened_index[parent_index] = len(
+                    node_index_to_flattened_index
+                )
+                visit(parent_index)
+
+            transform_source_index_to_destination_index.append(
+                (
+                    node_index_to_flattened_index[parent_index],
+                    node_index_to_flattened_index[node_index],
+                )
+            )
+
+    for node_indices in mesh_index_to_node_indices.values():
+        for node_index in node_indices:
+            node_index_to_flattened_index[node_index] = current_instance_index
+            current_instance_index += 1
+
+    for node_indices in mesh_index_to_node_indices.values():
+        for node_index in node_indices:
+            visit(node_index)
+
+    return TransformSequence(
+        node_index_to_flattened_index=node_index_to_flattened_index,
+        transform_source_index_to_destination_index=transform_source_index_to_destination_index,
     )
 
 
-@dataclasses.dataclass(eq=True, frozen=True, unsafe_hash=True)
-class Node:
-    transform: typing.Union[ScaleRotationTranslation, AffineMatrix]
-    bounds: typing.Optional[Bounds] = dataclasses.field(default=None)
-    children: typing.Collection["Node"] = dataclasses.field(default_factory=list)
+def _get_accessors(
+    *,
+    accessors_json: typing.Dict,
+    buffers_json: typing.Dict,
+    buffer_views_json: typing.Dict,
+    meshes_json: typing.Dict,
+    uri_resolver: typing.Callable[[str], bytes],
+) -> typing.List[kt.Mesh]:
+    buffers_data = []
+    for buffer_json in buffers_json:
+        uri: str = buffer_json["uri"]
+        data_prefix = "data:application/octet-stream;base64,"
+        if uri.startswith(data_prefix):
+            buffers_data.append(base64.b64decode(uri[len(data_prefix) :]))
+        else:
+            buffers_data.append(uri_resolver(uri))
+
+    accessor_data = []
+    for accessor_json in accessors_json:
+        count = accessor_json["count"]
+        byte_offset = accessor_json["byteOffset"]
+        if "bufferView" in accessor_json:
+            buffer_view_json = buffer_views_json[accessor_json["bufferView"]]
+            byte_offset += buffer_view_json.get("byteOffset", 0)
+            byte_count = buffer_view_json["byteLength"]
+
+            component_size = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}[
+                accessor_json["componentType"]
+            ]
+            component_count = {
+                "SCALAR": 1,
+                "VEC2": 2,
+                "VEC3": 3,
+                "VEC4": 4,
+                "MAT2": 4,
+                "MAT3": 9,
+                "MAT4": 16,
+            }[accessor_json["type"]]
+            natural_stride = component_size * component_count
+            byte_stride = buffer_view_json.get("byteStride", natural_stride)
+
+            buffer_bytes = buffer_view_json["buffer"]
+            if byte_stride == natural_stride:
+                accessor_data.append(
+                    buffer_bytes[byte_offset : byte_offset + byte_count]
+                )
+            else:
+                accessor_bytes = bytes(byte_count)
+                for i in range(count):
+                    accessor_bytes[
+                        i * natural_stride : (i + 1) * natural_stride
+                    ] = buffer_bytes[i * byte_stride : i * byte_stride + natural_stride]
+                accessor_data.append(accessor_bytes)
+        else:
+            accessor_data.append(bytes(count))
 
 
 class GltfModel:
-    def __init__(self, file):
+    def __init__(self, file: typing.TextIO):
         gltf_json = json.load(file)
 
-        def get_transform(node_json):
-            if "matrix" in node_json:
-                matrix_json = node_json["matrix"]
-                matrix = tuple(
-                    matrix_json[0:3]
-                    + matrix_json[4:7]
-                    + matrix_json[8:11]
-                    + matrix_json[12:15]
+        self.node_transforms = _get_node_transforms(gltf_json)
+        self.scenes: typing.List[GltfScene] = []
+
+        nodes_json = gltf_json["nodes"]
+
+        for scene_json in gltf_json["scenes"]:
+            scene_node_indices = scene_json["nodes"]
+
+            node_index_to_parent_index = _get_node_index_to_parent_index(
+                nodes_json=nodes_json, node_indices=scene_node_indices
+            )
+            mesh_index_to_node_indices = _get_mesh_index_to_node_indices(
+                nodes_json=nodes_json, node_indices=scene_node_indices
+            )
+            transform_sequence = _get_transform_sequence(
+                node_index_to_parent_index, mesh_index_to_node_indices
+            )
+            mesh_offsets = [
+                transform_sequence.node_index_to_flattened_index[node_indices[0]]
+                for node_indices in mesh_index_to_node_indices.values()
+            ]
+
+            self.scenes.append(
+                GltfScene(
+                    node_index_to_parent_index,
+                    mesh_index_to_node_indices,
+                    transform_sequence,
+                    mesh_offsets,
                 )
-                if matrix == (1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0):
-                    return None
-                return matrix
-
-            # scale = tuple(node_json.get("scale", (1.0, 1.0, 1.0)))
-            # rotation = tuple(node_json.get("rotation", (0.0, 0.0, 0.0, 1.0)))
-            # translation = tuple(node_json.get("translation", (0.0, 0.0, 0.0)))
-            raise RuntimeError("unimplemented")
-
-        node_transforms = []
-        node_index_to_flattened_node_index = []
-        for node_json in gltf_json["nodes"]:
-            transform = get_transform(node_json)
-            node_index_to_flattened_node_index.append(len(node_transforms))
-            if transform:
-                node_transforms.append(transform)
-
-        transform_stages = []
-        mesh_index_to_flattened_node_indices = [[]] * len(gltf_json["meshes"])
-        node_index_to_parent_index = [None] * len(gltf_json["nodes"])
-
-        def visit(
-            node_indices, parent_index: typing.Optional[int] = None, depth: int = 0
-        ):
-            for node_index in node_indices:
-                node_index_to_parent_index[node_index] = parent_index
-                current_depth = depth
-                current_parent_index = None
-                if node_index in node_index_to_flattened_node_index:
-                    while len(transform_stages) <= current_depth:
-                        transform_stages.append([])
-
-                    # if parent_index:
-                    transform_stages[current_depth].append((parent_index, node_index))
-
-                    current_parent_index = node_index
-                    current_depth += 1
-
-                node_json = gltf_json["nodes"][node_index]
-
-                if "mesh" in node_json:
-                    mesh_index_to_flattened_node_indices[node_json["mesh"]].append(
-                        node_index_to_flattened_node_index[parent_index]
-                    )
-
-                visit(
-                    node_json.get("children", []),
-                    parent_index=current_parent_index,
-                    depth=current_depth,
-                )
-
-        visit(gltf_json["scenes"][0]["nodes"])
-        print(mesh_index_to_flattene_node_indices)
+            )

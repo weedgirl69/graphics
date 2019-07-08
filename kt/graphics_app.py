@@ -16,7 +16,7 @@ from typing import (
 )
 import functools
 import vulkan as vk
-import pyshaderc
+import shaderc
 import kt
 
 
@@ -440,11 +440,11 @@ class GraphicsApp:
     @_add_to_resources
     def new_pipeline(
         self, pipeline_description: Tuple[kt.GraphicsPipelineDescription, object]
-    ) -> kt.Sampler:
-        return kt.Sampler(
+    ) -> kt.Pipeline:
+        return kt.Pipeline(
             vk.vkCreateGraphicsPipelines(
                 self.context.device, None, 1, [pipeline_description[0]], None
-            )
+            )[0]
         )
 
     @_add_to_resources
@@ -497,9 +497,7 @@ class GraphicsApp:
         stages = [filename.split(".")[-2] for filename in filenames]
         attribute_names = ["_".join(filename.split(".")[:2]) for filename in filenames]
         spirvs = [
-            pyshaderc.compile_file_into_spirv(
-                filepath=path, stage=stage, warnings_as_errors=True
-            )
+            shaderc.compile_shader(path=path, stage=stage)
             for path, stage in zip(paths, stages)
         ]
         shader_modules = [

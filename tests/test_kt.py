@@ -170,20 +170,19 @@ def test_metallic_roughness(app, test_data):
         render_pass = app.new_render_pass(
             attachments=[
                 kt.new_attachment_description(
-                    format=Format.R8G8B8A8_SRGB,
-                    load_op=LoadOp.CLEAR,
-                    store_op=StoreOp.DISCARD,
-                    # final_layout=ImageLayout.TRANSFER_SOURCE,
-                    sample_count=sample_count,
-                ),
-                kt.new_attachment_description(
-                    format=Format.D24X8,
+                    pixel_format=Format.R8G8B8A8_SRGB,
                     load_op=LoadOp.CLEAR,
                     store_op=StoreOp.DISCARD,
                     sample_count=sample_count,
                 ),
                 kt.new_attachment_description(
-                    format=Format.R8G8B8A8_SRGB,
+                    pixel_format=Format.D24X8,
+                    load_op=LoadOp.CLEAR,
+                    store_op=StoreOp.DISCARD,
+                    sample_count=sample_count,
+                ),
+                kt.new_attachment_description(
+                    pixel_format=Format.R8G8B8A8_SRGB,
                     load_op=LoadOp.DONT_CARE,
                     store_op=StoreOp.STORE,
                     final_layout=ImageLayout.TRANSFER_SOURCE,
@@ -229,10 +228,10 @@ def test_metallic_roughness(app, test_data):
                 fragment_shader=shader_set.metallic_roughness_frag,
                 vertex_attributes=[
                     kt.new_vertex_attribute(
-                        location=0, binding=0, format=Format.R32G32B32_FLOAT
+                        location=0, binding=0, pixel_format=Format.R32G32B32_FLOAT
                     ),
                     kt.new_vertex_attribute(
-                        location=1, binding=1, format=Format.R32G32B32_FLOAT
+                        location=1, binding=1, pixel_format=Format.R32G32B32_FLOAT
                     ),
                 ],
                 vertex_bindings=[
@@ -419,7 +418,7 @@ def test_texture(app, test_data):
     render_pass = app.new_render_pass(
         attachments=[
             kt.new_attachment_description(
-                format=Format.R8G8B8A8_SRGB,
+                pixel_format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
                 final_layout=ImageLayout.TRANSFER_SOURCE,
@@ -449,8 +448,12 @@ def test_texture(app, test_data):
         vertex_shader=shader_set.texture_test_vert,
         fragment_shader=shader_set.texture_test_frag,
         vertex_attributes=[
-            kt.new_vertex_attribute(location=0, binding=0, format=Format.R32G32_FLOAT),
-            kt.new_vertex_attribute(location=1, binding=1, format=Format.R32G32_FLOAT),
+            kt.new_vertex_attribute(
+                location=0, binding=0, pixel_format=Format.R32G32_FLOAT
+            ),
+            kt.new_vertex_attribute(
+                location=1, binding=1, pixel_format=Format.R32G32_FLOAT
+            ),
         ],
         vertex_bindings=[
             kt.new_vertex_binding(binding=0, stride=8),
@@ -565,13 +568,13 @@ def cube_app_test(method):
             "render_pass": app.new_render_pass(
                 attachments=[
                     kt.new_attachment_description(
-                        format=Format.R8G8B8A8_SRGB,
+                        pixel_format=Format.R8G8B8A8_SRGB,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.STORE,
                         final_layout=ImageLayout.TRANSFER_SOURCE,
                     ),
                     kt.new_attachment_description(
-                        format=Format.D24X8,
+                        pixel_format=Format.D24X8,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.DISCARD,
                     ),
@@ -690,16 +693,20 @@ def test_instanced_cubes(app, test_data, cube_resources):
             vertex_shader=shader_set.instanced_cube_vert,
             fragment_shader=shader_set.cube_frag,
             vertex_attributes=[
-                kt.new_vertex_attribute(location=0, binding=0, format=float3_format),
-                kt.new_vertex_attribute(location=1, binding=1, format=float3_format),
                 kt.new_vertex_attribute(
-                    location=2, binding=2, format=float4_format, offset=0
+                    location=0, binding=0, pixel_format=float3_format
                 ),
                 kt.new_vertex_attribute(
-                    location=3, binding=2, format=float4_format, offset=16
+                    location=1, binding=1, pixel_format=float3_format
                 ),
                 kt.new_vertex_attribute(
-                    location=4, binding=2, format=float4_format, offset=32
+                    location=2, binding=2, pixel_format=float4_format, offset=0
+                ),
+                kt.new_vertex_attribute(
+                    location=3, binding=2, pixel_format=float4_format, offset=16
+                ),
+                kt.new_vertex_attribute(
+                    location=4, binding=2, pixel_format=float4_format, offset=32
                 ),
             ],
             vertex_bindings=[
@@ -770,10 +777,10 @@ def test_cube(app, test_data, cube_resources):
             fragment_shader=shader_set.cube_frag,
             vertex_attributes=[
                 kt.new_vertex_attribute(
-                    location=0, binding=0, format=Format.R32G32B32_FLOAT
+                    location=0, binding=0, pixel_format=Format.R32G32B32_FLOAT
                 ),
                 kt.new_vertex_attribute(
-                    location=1, binding=1, format=Format.R32G32B32_FLOAT
+                    location=1, binding=1, pixel_format=Format.R32G32B32_FLOAT
                 ),
             ],
             vertex_bindings=[
@@ -835,7 +842,7 @@ def test_triangle(app, test_data):
     render_pass = app.new_render_pass(
         attachments=[
             kt.new_attachment_description(
-                format=Format.R8G8B8A8_SRGB,
+                pixel_format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
                 final_layout=ImageLayout.TRANSFER_SOURCE,

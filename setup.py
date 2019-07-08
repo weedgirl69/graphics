@@ -1,7 +1,8 @@
-import setuptools
+from setuptools import setup
 
-setuptools.setup(
-    name="graphics",
-    packages=setuptools.find_packages(),
-    install_requires=["vulkan", "pyshaderc"],
+setup(
+    name="kt",
+    packages=["kt", "shaderc"],
+    install_requires=["vulkan"],
+    tests_require=["pytest-cov", "pypng", "pytest"],
 )

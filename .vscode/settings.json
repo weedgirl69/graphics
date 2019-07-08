@@ -22,13 +22,11 @@
     "python.linting.pylintEnabled": true,
     "python.testing.nosetestsEnabled": false,
     "python.envFile": "${workspaceFolder}/.env",
-    "python.testing.pyTestEnabled": true,
-    "python.testing.unittestEnabled": false,
+    "python.testing.unittestEnabled": true,
+    "python.testing.pytestPath": "C:\\Users\\Admin\\AppData\\Roaming\\Python\\Python37\\Scripts\\pytest.exe",
+    "python.testing.pytestEnabled": true,
     "python.testing.pytestArgs": [
-        "--cov=kt",
-        "--cov-report=html",
-        "-rpP",
-        "tests/"
+        "-rpP"
     ],
-    "python.testing.pytestEnabled": true
+    "python.pythonPath": "C:\\Python37\\python.exe"
 }
