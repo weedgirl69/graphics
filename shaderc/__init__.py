@@ -2,7 +2,7 @@ import subprocess
 import shutil
 import os
 
-GLSLC_PATH = os.path.normpath(shutil.which("glslc", path=os.environ["VK_LAYER_PATH"]))
+GLSLC_PATH = os.path.normpath(os.environ["GLSLC_PATH"])
 
 
 def get_version_string():

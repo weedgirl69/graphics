@@ -4,7 +4,6 @@ import pytest
 
 
 def test_path():
-    print(shaderc.GLSLC_PATH)
     assert os.path.exists(shaderc.GLSLC_PATH)
 
 

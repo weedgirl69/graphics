@@ -97,7 +97,7 @@ def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]
 
 def _get_node_index_to_parent_index(
     *,
-    nodes_json: typing.Dict,
+    nodes_json: typing.List[typing.Dict],
     node_indices: typing.List[int],
     parent_index: typing.Optional[int] = None,
     node_index_to_parent_index: typing.Dict[int, typing.Optional[int]] = None,
@@ -108,8 +108,8 @@ def _get_node_index_to_parent_index(
     for node_index in node_indices:
         node_index_to_parent_index[node_index] = parent_index
         _get_node_index_to_parent_index(
-            nodes_json=nodes_json[node_index].get("children", []),
-            node_indices=node_indices,
+            nodes_json=nodes_json,
+            node_indices=nodes_json[node_index].get("children", []),
             parent_index=node_index,
             node_index_to_parent_index=node_index_to_parent_index,
         )
@@ -119,7 +119,7 @@ def _get_node_index_to_parent_index(
 
 def _get_mesh_index_to_node_indices(
     *,
-    nodes_json: typing.Dict,
+    nodes_json: typing.List[typing.Dict],
     node_indices: typing.List[int],
     mesh_index_to_node_indices: typing.Dict[int, typing.List[int]] = None,
 ) -> typing.Dict[int, typing.List[int]]:
@@ -133,8 +133,8 @@ def _get_mesh_index_to_node_indices(
             mesh_index_to_node_indices[node_json["mesh"]].append(node_index)
 
         _get_mesh_index_to_node_indices(
-            nodes_json=node_json.get("children", []),
-            node_indices=node_indices,
+            nodes_json=nodes_json,
+            node_indices=node_json.get("children", []),
             mesh_index_to_node_indices=mesh_index_to_node_indices,
         )
 
@@ -185,22 +185,20 @@ def _get_accessors(
     accessors_json: typing.Dict,
     buffers_json: typing.Dict,
     buffer_views_json: typing.Dict,
-    meshes_json: typing.Dict,
     uri_resolver: typing.Callable[[str], bytes],
-) -> typing.List[kt.Mesh]:
+) -> typing.List[bytes]:
     buffers_data = []
     for buffer_json in buffers_json:
         uri: str = buffer_json["uri"]
-        data_prefix = "data:application/octet-stream;base64,"
-        if uri.startswith(data_prefix):
-            buffers_data.append(base64.b64decode(uri[len(data_prefix) :]))
+        if uri.startswith("data:application/"):
+            buffers_data.append(base64.b64decode(uri.split(",", 1)[1]))
         else:
             buffers_data.append(uri_resolver(uri))
 
     accessor_data = []
     for accessor_json in accessors_json:
         count = accessor_json["count"]
-        byte_offset = accessor_json["byteOffset"]
+        byte_offset = accessor_json.get("byteOffset", 0)
         if "bufferView" in accessor_json:
             buffer_view_json = buffer_views_json[accessor_json["bufferView"]]
             byte_offset += buffer_view_json.get("byteOffset", 0)
@@ -221,13 +219,13 @@ def _get_accessors(
             natural_stride = component_size * component_count
             byte_stride = buffer_view_json.get("byteStride", natural_stride)
 
-            buffer_bytes = buffer_view_json["buffer"]
+            buffer_bytes = buffers_data[buffer_view_json["buffer"]]
             if byte_stride == natural_stride:
                 accessor_data.append(
                     buffer_bytes[byte_offset : byte_offset + byte_count]
                 )
             else:
-                accessor_bytes = bytes(byte_count)
+                accessor_bytes = bytearray(byte_count)
                 for i in range(count):
                     accessor_bytes[
                         i * natural_stride : (i + 1) * natural_stride
@@ -236,15 +234,24 @@ def _get_accessors(
         else:
             accessor_data.append(bytes(count))
 
+    return accessor_data
+
 
 class GltfModel:
-    def __init__(self, file: typing.TextIO):
+    def __init__(self, file: typing.TextIO, uri_resolver):
         gltf_json = json.load(file)
 
         self.node_transforms = _get_node_transforms(gltf_json)
         self.scenes: typing.List[GltfScene] = []
 
         nodes_json = gltf_json["nodes"]
+
+        self.accessors = _get_accessors(
+            accessors_json=gltf_json["accessors"],
+            buffers_json=gltf_json["buffers"],
+            buffer_views_json=gltf_json["bufferViews"],
+            uri_resolver=uri_resolver,
+        )
 
         for scene_json in gltf_json["scenes"]:
             scene_node_indices = scene_json["nodes"]

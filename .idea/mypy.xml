@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="MypyConfigService">
-    <option name="customMypyPath" value="C:\Users\Admin\AppData\Roaming\Python\Python37\Scripts\mypy.exe" />
-    <option name="mypyConfigFilePath" value="C:\Users\Admin\graphics\mypy.ini" />
+    <option name="customMypyPath" value="$PROJECT_DIR$/../../../../../bin/mypy" />
+    <option name="mypyConfigFilePath" value="mypy.ini" />
   </component>
 </project>

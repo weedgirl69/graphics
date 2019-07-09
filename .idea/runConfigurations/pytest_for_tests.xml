@@ -3,9 +3,15 @@
     <module name="graphics" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
-    <option name="SDK_HOME" value="" />
+    <envs>
+      <env name="VK_LAYER_PATH" value="$USER_HOME$/vulkansdk-linux-x86_64-1.1.106.0/1.1.106.0/x86_64/etc/explicit_layer.d" />
+      <env name="GLSLC_PATH" value="$PROJECT_DIR$/../../../../../bin/glslc" />
+      <env name="LD_LIBRARY_PATH" value="$LD_LIBRARY_PATH:$USER_HOME$/vulkansdk-linux-x86_64-1.1.106.0/1.1.106.0/x86_64/lib" />
+      <env name="GLTF_SAMPLE_MODELS_DIR" value="$USER_HOME$/glTF-Sample-Models" />
+    </envs>
+    <option name="SDK_HOME" value="$PROJECT_DIR$/../../../../../../bin/python3.7" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-    <option name="IS_MODULE_SDK" value="true" />
+    <option name="IS_MODULE_SDK" value="false" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
     <EXTENSION ID="net.ashald.envfile">
@@ -20,7 +26,7 @@
       </ENTRIES>
     </EXTENSION>
     <option name="_new_keywords" value="&quot;gltf&quot;" />
-    <option name="_new_additionalArguments" value="&quot;&quot;" />
+    <option name="_new_additionalArguments" value="&quot;-rpP&quot;" />
     <option name="_new_target" value="&quot;tests&quot;" />
     <option name="_new_targetType" value="&quot;PYTHON&quot;" />
     <method v="2" />
