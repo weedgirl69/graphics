@@ -246,6 +246,10 @@ def _get_mesh_index_to_primitives(
     *, accessors: typing.List[bytes], meshes_json: typing.List[typing.Dict]
 ) -> typing.List[typing.list[GltfPrimitive]]:
 
+    index_bytes = bytearray()
+
+    for
+
     return [
         [
             GltfPrimitive(
@@ -272,7 +276,9 @@ class GltfModel:
             uri_resolver=uri_resolver,
         )
 
-        self.meshes = _get_mesh_index_to_primitives(meshes_json=gltf_json["meshes"])
+        self.meshes = _get_mesh_index_to_primitives(
+            accessors=self.accessors, meshes_json=gltf_json["meshes"]
+        )
 
         nodes_json = gltf_json["nodes"]
         for scene_json in gltf_json["scenes"]:
