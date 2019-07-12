@@ -2,18 +2,17 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="3c4cae69-8bc1-468f-9ddd-51b60a53d88f" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/BlackPycharmConfig.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/BlackPycharmConfig.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/graphics.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/graphics.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/mypy.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/mypy.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/runConfigurations/pytest_for_tests.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/runConfigurations/pytest_for_tests.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/runConfigurations/pytest_for_tests.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/watcherTasks.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/watcherTasks.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.vscode/settings.json" beforeDir="false" afterPath="$PROJECT_DIR$/.vscode/settings.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.vscode/launch.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.vscode/settings.json" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/kt/gltf.py" beforeDir="false" afterPath="$PROJECT_DIR$/kt/gltf.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shaderc/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/shaderc/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pytest.ini" beforeDir="false" afterPath="$PROJECT_DIR$/pytest.ini" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/setup.py" beforeDir="false" afterPath="$PROJECT_DIR$/setup.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_gltf.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_gltf.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_shaderc.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_shaderc.py" afterDir="false" />
     </list>
     <manually-removed-from-ignored>
       <directory path=".pytest_cache/" />
@@ -27,52 +26,100 @@
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/setup.py">
+        <entry file="file://$PROJECT_DIR$/tests/test_gltf.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="120">
-              <caret line="8" selection-start-line="8" selection-end-line="8" />
+            <state relative-caret-position="315">
+              <caret line="24" selection-start-line="24" selection-end-line="24" />
             </state>
           </provider>
         </entry>
       </file>
       <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/tests/test_gltf.py">
+        <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/_pytest/python.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="405">
-              <caret line="31" selection-start-line="31" selection-end-line="31" />
+            <state relative-caret-position="1890">
+              <caret line="164" selection-start-line="164" selection-end-line="164" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/pluggy/callers.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="2805">
+              <caret line="188" column="43" selection-start-line="188" selection-start-column="43" selection-end-line="188" selection-end-column="43" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/pytest.ini">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="15">
+              <caret line="1" column="14" selection-start-line="1" selection-start-column="14" selection-end-line="1" selection-end-column="14" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$APPLICATION_HOME_DIR$/helpers/pydev/pydevd.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="17190">
+              <caret line="1146" selection-start-line="1146" selection-end-line="1146" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$APPLICATION_HOME_DIR$/helpers/pydev/_pydev_imps/_pydev_execfile.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="255">
+              <caret line="17" selection-start-line="17" selection-end-line="17" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/_pytest/config/__init__.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="810">
+              <caret line="82" selection-start-line="82" selection-end-line="82" />
             </state>
           </provider>
         </entry>
       </file>
       <file pinned="false" current-in-tab="true">
-        <entry file="file://$PROJECT_DIR$/kt/mesh.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="165">
-              <caret line="11" lean-forward="true" selection-start-line="11" selection-end-line="11" />
-              <folding>
-                <element signature="e#0#12#0" expanded="true" />
-              </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/../../../../../../lib/python3.7/glob.py">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="90">
-              <caret line="8" column="4" selection-start-line="8" selection-start-column="4" selection-end-line="8" selection-end-column="4" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/kt/gltf.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="522">
-              <caret line="223" column="37" lean-forward="true" selection-start-line="223" selection-start-column="37" selection-end-line="223" selection-end-column="37" />
+            <state relative-caret-position="738">
+              <caret line="245" column="36" selection-start-line="245" selection-start-column="36" selection-end-line="245" selection-end-column="36" />
               <folding>
-                <element signature="e#0#34#0" expanded="true" />
+                <element signature="e#298#376#0" />
+                <element signature="e#444#581#0" />
+                <element signature="e#641#851#0" />
+                <element signature="e#1010#2862#0" />
+                <element signature="e#1048#1540#0" />
+                <element signature="e#1155#1526#0" />
+                <element signature="e#2541#2852#0" />
               </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/../../../../lib/python3.7/sre_parse.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="2490">
+              <caret line="166" selection-start-line="166" selection-end-line="166" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/../../../../lib/python3.7/inspect.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="33585">
+              <caret line="2256" column="66" selection-start-line="2256" selection-start-column="66" selection-end-line="2256" selection-end-column="66" />
             </state>
           </provider>
         </entry>
@@ -83,8 +130,8 @@
     <option name="RECENT_TEMPLATES">
       <list>
         <option value="Setup Script" />
-        <option value="Python Script" />
         <option value="Python Unit Test" />
+        <option value="Python Script" />
       </list>
     </option>
   </component>
@@ -97,6 +144,12 @@
       <find>pipeline</find>
       <find>render</find>
       <find>base64</find>
+      <find>numpy</find>
+      <find>np.</find>
+      <find>covhtml</find>
+      <find>mesh_offsets</find>
+      <find>scenes</find>
+      <find>vc.gltf</find>
     </findStrings>
   </component>
   <component name="Git.Settings">
@@ -109,29 +162,16 @@
         <option value="$PROJECT_DIR$/.env" />
         <option value="$PROJECT_DIR$/tests/shaders/broken.vert.glsl" />
         <option value="$PROJECT_DIR$/tests/test_shaderc.py" />
-        <option value="$PROJECT_DIR$/setup.py" />
         <option value="$PROJECT_DIR$/kt/graphics_app.py" />
         <option value="$PROJECT_DIR$/shaderc/__init__.py" />
-        <option value="$PROJECT_DIR$/pytest.ini" />
         <option value="$PROJECT_DIR$/tests/test_kt.py" />
-        <option value="$PROJECT_DIR$/kt/gltf.py" />
+        <option value="$PROJECT_DIR$/setup.py" />
+        <option value="$PROJECT_DIR$/venv37/lib/python3.7/site-packages/vulkan/_vulkan.py" />
+        <option value="$PROJECT_DIR$/fart.py" />
+        <option value="$PROJECT_DIR$/tests/afgwef.py" />
+        <option value="$PROJECT_DIR$/pytest.ini" />
         <option value="$PROJECT_DIR$/tests/test_gltf.py" />
-      </list>
-    </option>
-  </component>
-  <component name="ProjectConfigurationFiles">
-    <option name="files">
-      <list>
-        <option value="$PROJECT_DIR$/.idea/graphics.iml" />
-        <option value="$PROJECT_DIR$/.idea/misc.xml" />
-        <option value="$PROJECT_DIR$/.idea/vcs.xml" />
-        <option value="$PROJECT_DIR$/.idea/modules.xml" />
-        <option value="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" />
-        <option value="$PROJECT_DIR$/.idea/dictionaries/Admin.xml" />
-        <option value="$PROJECT_DIR$/.idea/BlackPycharmConfig.xml" />
-        <option value="$PROJECT_DIR$/.idea/watcherTasks.xml" />
-        <option value="$PROJECT_DIR$/.idea/runConfigurations/pytest_for_tests.xml" />
-        <option value="$PROJECT_DIR$/.idea/mypy.xml" />
+        <option value="$PROJECT_DIR$/kt/gltf.py" />
       </list>
     </option>
   </component>
@@ -156,6 +196,11 @@
             <path>
               <item name="graphics" type="b2602c69:ProjectViewProjectNode" />
               <item name="graphics" type="462c0819:PsiDirectoryNode" />
+              <item name="htmlcov" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="graphics" type="b2602c69:ProjectViewProjectNode" />
+              <item name="graphics" type="462c0819:PsiDirectoryNode" />
               <item name="kt" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
@@ -174,8 +219,8 @@
     <property name="ASKED_SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
     <property name="NewWatcherDialog.advanced.open" value="true" />
     <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$/.pytest_cache" />
-    <property name="settings.editor.selected.configurable" value="watcher.settings" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="settings.editor.selected.configurable" value="preferences.general" />
   </component>
   <component name="PyConsoleOptionsProvider">
     <option name="myPythonConsoleState">
@@ -202,6 +247,76 @@
       </list>
     </option>
   </component>
+  <component name="RunManager" selected="Python tests.gltf">
+    <configuration name="all" type="tests" factoryName="py.test" singleton="false">
+      <module name="graphics" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="GLSLC_PATH" value="$PROJECT_DIR$/../Downloads/install/bin/glslc" />
+        <env name="GLTF_SAMPLE_MODELS_DIR" value="$PROJECT_DIR$/../glTF-Sample-Models/" />
+        <env name="VK_LAYER_PATH" value="$PROJECT_DIR$/../Downloads/1.1.108.0/x86_64/etc/vulkan/explicit_layer.d/" />
+        <env name="LD_LIBRARY_PATH" value="$LD_LIBRARY_PATH:$PROJECT_DIR$/../Downloads/1.1.108.0/x86_64/lib/" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="net.ashald.envfile">
+        <option name="IS_ENABLED" value="true" />
+        <option name="IS_SUBST" value="false" />
+        <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+        <option name="IS_IGNORE_MISSING_FILES" value="false" />
+        <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+        <ENTRIES>
+          <ENTRY IS_ENABLED="true" PARSER="env" PATH=".env" />
+          <ENTRY IS_ENABLED="true" PARSER="runconfig" />
+        </ENTRIES>
+      </EXTENSION>
+      <option name="_new_keywords" value="&quot;&quot;" />
+      <option name="_new_additionalArguments" value="&quot;-rpP&quot;" />
+      <option name="_new_target" value="&quot;tests&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
+    <configuration name="gltf" type="tests" factoryName="py.test" singleton="false">
+      <module name="graphics" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="GLSLC_PATH" value="$PROJECT_DIR$/../Downloads/install/bin/glslc" />
+        <env name="GLTF_SAMPLE_MODELS_DIR" value="$PROJECT_DIR$/../glTF-Sample-Models/" />
+        <env name="VK_LAYER_PATH" value="$PROJECT_DIR$/../Downloads/1.1.108.0/x86_64/etc/vulkan/explicit_layer.d/" />
+        <env name="LD_LIBRARY_PATH" value="$LD_LIBRARY_PATH:$PROJECT_DIR$/../Downloads/1.1.108.0/x86_64/lib/" />
+      </envs>
+      <option name="SDK_HOME" value="$PROJECT_DIR$/venv37/bin/python" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="net.ashald.envfile">
+        <option name="IS_ENABLED" value="true" />
+        <option name="IS_SUBST" value="false" />
+        <option name="IS_PATH_MACRO_SUPPORTED" value="false" />
+        <option name="IS_IGNORE_MISSING_FILES" value="false" />
+        <option name="IS_ENABLE_EXPERIMENTAL_INTEGRATIONS" value="false" />
+        <ENTRIES>
+          <ENTRY IS_ENABLED="true" PARSER="env" PATH=".env" />
+          <ENTRY IS_ENABLED="true" PARSER="runconfig" />
+        </ENTRIES>
+      </EXTENSION>
+      <option name="_new_keywords" value="&quot;gltf&quot;" />
+      <option name="_new_additionalArguments" value="&quot;-rpP&quot;" />
+      <option name="_new_target" value="&quot;tests&quot;" />
+      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python tests.gltf" />
+      <item itemvalue="Python tests.all" />
+    </list>
+  </component>
   <component name="SvnConfiguration">
     <configuration />
   </component>
@@ -216,54 +331,55 @@
     <servers />
   </component>
   <component name="TestHistory">
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 20m 03s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 28m 33s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 21m 03s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 29m 52s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 21m 24s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 29m 59s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 24m 39s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 31m 37s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 25m 09s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 32m 05s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 30m 53s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 36m 55s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 32m 40s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 37m 38s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 33m 24s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 38m 52s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 34m 42s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 45m 19s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
-    <history-entry file="pytest_for_tests - 2019.07.08 at 18h 35m 09s.xml">
-      <configuration name="pytest for tests" configurationId="tests" />
+    <history-entry file="gltf - 2019.07.10 at 12h 45m 47s.xml">
+      <configuration name="gltf" configurationId="tests" />
     </history-entry>
   </component>
   <component name="ToolWindowManager">
-    <frame x="-1" y="0" width="2562" height="1416" extended-state="6" />
+    <frame x="-1" y="0" width="2562" height="1415" extended-state="6" />
+    <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.24970461" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.24970461" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
-      <window_info anchor="bottom" id="Find" order="1" />
-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.49683878" weight="0.27385572" />
-      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49947312" weight="0.39953452" />
+      <window_info anchor="bottom" id="Find" order="1" weight="0.32996893" />
+      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.49683878" weight="0.27329192" />
+      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49947312" weight="0.39906833" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="bottom" id="TODO" order="6" />
-      <window_info anchor="bottom" id="Version Control" order="7" />
-      <window_info anchor="bottom" id="Terminal" order="8" sideWeight="0.49841937" weight="0.32981783" />
+      <window_info anchor="bottom" id="Version Control" order="7" weight="0.32919255" />
+      <window_info anchor="bottom" id="Terminal" order="8" sideWeight="0.49841937" weight="0.32919255" />
       <window_info anchor="bottom" id="Event Log" order="9" sideWeight="0.50316125" side_tool="true" weight="0.27420902" />
-      <window_info active="true" anchor="bottom" id="Python Console" order="10" visible="true" weight="0.32971296" />
+      <window_info anchor="bottom" id="Python Console" order="10" weight="0.32919255" />
       <window_info anchor="bottom" id="Mypy" order="11" />
       <window_info anchor="bottom" id="Dependency Graph" order="12" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
@@ -294,36 +410,14 @@
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/venv/Lib/site-packages/coverage/report.py</url>
-          <line>40</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/venv/Lib/site-packages/coverage/report.py</url>
-          <line>42</line>
-          <option name="timeStamp" value="2" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/tests/test_gltf.py</url>
-          <line>17</line>
-          <option name="timeStamp" value="3" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/tests/test_gltf.py</url>
-          <line>10</line>
-          <option name="timeStamp" value="4" />
+          <line>30</line>
+          <option name="timeStamp" value="28" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$APPLICATION_HOME_DIR$/helpers/pycharm/_jb_pytest_runner.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="272">
-          <caret line="26" column="58" selection-start-line="26" selection-start-column="58" selection-end-line="26" selection-end-column="58" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/.pep8">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
@@ -390,23 +484,8 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/htmlcov/index.html">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="255">
-          <caret line="15" column="35" selection-start-line="15" selection-start-column="35" selection-end-line="15" selection-end-column="35" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/.coverage">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/pytest.ini">
-      <provider selected="true" editor-type-id="text-editor">
-        <state>
-          <caret column="8" selection-start-column="8" selection-end-line="1" selection-end-column="55" />
-        </state>
-      </provider>
-    </entry>
+    <entry file="file://$PROJECT_DIR$/htmlcov/index.html" />
+    <entry file="file://$PROJECT_DIR$/.coverage" />
     <entry file="file://$PROJECT_DIR$/venv/Lib/site-packages/vulkan/_vulkan.py" />
     <entry file="file://$PROJECT_DIR$/mypy.ini">
       <provider selected="true" editor-type-id="text-editor">
@@ -510,53 +589,159 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tests/test_kt.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="641">
-          <caret line="175" column="46" lean-forward="true" selection-start-line="175" selection-start-column="46" selection-end-line="175" selection-end-column="46" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/venv/Lib/site-packages/_pytest/python.py" />
     <entry file="file://$PROJECT_DIR$/venv/Lib/site-packages/py/_path/local.py" />
     <entry file="file://C:/Python37/Lib/typing.py" />
-    <entry file="file://$PROJECT_DIR$/setup.py">
+    <entry file="file://$PROJECT_DIR$/../../../../../../lib/python3.7/glob.py" />
+    <entry file="file://$APPLICATION_HOME_DIR$/helpers/pycharm/_jb_pytest_runner.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="120">
-          <caret line="8" selection-start-line="8" selection-end-line="8" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/kt/gltf.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="522">
-          <caret line="223" column="37" lean-forward="true" selection-start-line="223" selection-start-column="37" selection-end-line="223" selection-end-column="37" />
+        <state relative-caret-position="240">
+          <caret line="16" column="53" lean-forward="true" selection-start-line="16" selection-start-column="53" selection-end-line="16" selection-end-column="53" />
           <folding>
-            <element signature="e#0#34#0" expanded="true" />
+            <element signature="e#15#25#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/../../../../../../lib/python3.7/glob.py">
+    <entry file="file://$PROJECT_DIR$/.gitignore">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="90">
-          <caret line="8" column="4" selection-start-line="8" selection-start-column="4" selection-end-line="8" selection-end-column="4" />
+        <state relative-caret-position="255">
+          <caret line="37" column="17" selection-start-line="37" selection-start-column="17" selection-end-line="37" selection-end-column="17" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/tests/test_gltf.py">
+    <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/vulkan/_vulkan.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="405">
-          <caret line="31" selection-start-line="31" selection-end-line="31" />
+        <state relative-caret-position="15">
+          <caret line="29" selection-start-line="29" selection-end-line="31" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/setup.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="135">
+          <caret line="9" selection-start-line="9" selection-end-line="9" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tests/test_kt.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="9585">
+          <caret line="665" column="48" selection-start-line="665" selection-start-column="48" selection-end-line="665" selection-end-column="48" />
+          <folding>
+            <element signature="e#0#12#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/venv37/pyvenv.cfg">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="45">
+          <caret line="3" selection-start-line="3" selection-end-line="3" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../glTF-Sample-Models/2.0/BoxVertexColors/glTF-Embedded/BoxVertexColors.gltf">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1935">
+          <caret line="129" column="14" selection-start-line="129" selection-start-column="14" selection-end-line="129" selection-end-column="14" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/kt/mesh.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="165">
-          <caret line="11" lean-forward="true" selection-start-line="11" selection-end-line="11" />
+        <state relative-caret-position="135">
+          <caret line="11" selection-start-line="11" selection-end-line="11" />
           <folding>
             <element signature="e#0#12#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../../../lib/python3.7/re.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="249">
+          <caret line="275" selection-start-line="275" selection-end-line="275" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/fart.py" />
+    <entry file="file://$PROJECT_DIR$/tests/afgwef.py" />
+    <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/_pytest/python.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1890">
+          <caret line="164" selection-start-line="164" selection-end-line="164" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/pluggy/callers.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2805">
+          <caret line="188" column="43" selection-start-line="188" selection-start-column="43" selection-end-line="188" selection-end-column="43" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/pytest.ini">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="15">
+          <caret line="1" column="14" selection-start-line="1" selection-start-column="14" selection-end-line="1" selection-end-column="14" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$APPLICATION_HOME_DIR$/helpers/pydev/pydevd.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="17190">
+          <caret line="1146" selection-start-line="1146" selection-end-line="1146" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$APPLICATION_HOME_DIR$/helpers/pydev/_pydev_imps/_pydev_execfile.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="255">
+          <caret line="17" selection-start-line="17" selection-end-line="17" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/venv37/lib/python3.7/site-packages/_pytest/config/__init__.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="810">
+          <caret line="82" selection-start-line="82" selection-end-line="82" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../../../lib/python3.7/sre_parse.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2490">
+          <caret line="166" selection-start-line="166" selection-end-line="166" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../../../lib/python3.7/inspect.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="33585">
+          <caret line="2256" column="66" selection-start-line="2256" selection-start-column="66" selection-end-line="2256" selection-end-column="66" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/tests/test_gltf.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="315">
+          <caret line="24" selection-start-line="24" selection-end-line="24" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/kt/gltf.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="738">
+          <caret line="245" column="36" selection-start-line="245" selection-start-column="36" selection-end-line="245" selection-end-column="36" />
+          <folding>
+            <element signature="e#298#376#0" />
+            <element signature="e#444#581#0" />
+            <element signature="e#641#851#0" />
+            <element signature="e#1010#2862#0" />
+            <element signature="e#1048#1540#0" />
+            <element signature="e#1155#1526#0" />
+            <element signature="e#2541#2852#0" />
           </folding>
         </state>
       </provider>

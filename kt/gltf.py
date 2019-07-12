@@ -4,11 +4,16 @@ import collections
 import json
 import dataclasses
 import typing
-import kt.mesh
 
 AffineTransform = typing.Tuple[
     float, float, float, float, float, float, float, float, float, float, float, float
 ]
+
+
+@dataclasses.dataclass(frozen=True)
+class GltfPrimitive:
+    indices_accessor_index: typing.Optional[int]
+    positions_accessor_index: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,7 +107,7 @@ def _get_node_index_to_parent_index(
     parent_index: typing.Optional[int] = None,
     node_index_to_parent_index: typing.Dict[int, typing.Optional[int]] = None,
 ) -> typing.Dict[int, typing.Optional[int]]:
-    if not node_index_to_parent_index:
+    if node_index_to_parent_index is None:
         node_index_to_parent_index = {}
 
     for node_index in node_indices:
@@ -123,7 +128,7 @@ def _get_mesh_index_to_node_indices(
     node_indices: typing.List[int],
     mesh_index_to_node_indices: typing.Dict[int, typing.List[int]] = None,
 ) -> typing.Dict[int, typing.List[int]]:
-    if not mesh_index_to_node_indices:
+    if mesh_index_to_node_indices is None:
         mesh_index_to_node_indices = collections.defaultdict(list)
 
     for node_index in node_indices:
@@ -237,14 +242,28 @@ def _get_accessors(
     return accessor_data
 
 
+def _get_mesh_index_to_primitives(
+    *, accessors: typing.List[bytes], meshes_json: typing.List[typing.Dict]
+) -> typing.List[typing.list[GltfPrimitive]]:
+
+    return [
+        [
+            GltfPrimitive(
+                indices_accessor_index=primitive_json.get("indices", None),
+                positions_accessor_index=primitive_json["attributes"]["POSITION"],
+            )
+            for primitive_json in mesh_json["primitives"]
+        ]
+        for mesh_json in meshes_json
+    ]
+
+
 class GltfModel:
     def __init__(self, file: typing.TextIO, uri_resolver):
         gltf_json = json.load(file)
 
         self.node_transforms = _get_node_transforms(gltf_json)
         self.scenes: typing.List[GltfScene] = []
-
-        nodes_json = gltf_json["nodes"]
 
         self.accessors = _get_accessors(
             accessors_json=gltf_json["accessors"],
@@ -253,6 +272,9 @@ class GltfModel:
             uri_resolver=uri_resolver,
         )
 
+        self.meshes = _get_mesh_index_to_primitives(meshes_json=gltf_json["meshes"])
+
+        nodes_json = gltf_json["nodes"]
         for scene_json in gltf_json["scenes"]:
             scene_node_indices = scene_json["nodes"]
 

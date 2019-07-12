@@ -8,13 +8,12 @@ TEST_IMAGE_SAMPLE_COUNT = 3
 
 
 def test_gltf() -> None:
-    print("XXX")
-
     sample_models_dir = os.environ["GLTF_SAMPLE_MODELS_DIR"]
 
     for gltf_path in glob.glob(
         os.path.join(sample_models_dir, "2.0/*/glTF-Embedded/*.gltf")
     ) + glob.glob(os.path.join(sample_models_dir, "2.0/*/glTF/*.gltf")):
+        print(gltf_path)
         with open(gltf_path) as gltf_file:
 
             def read_file_bytes(uri: str):
@@ -22,16 +21,15 @@ def test_gltf() -> None:
                     return file.read()
 
             model = kt.gltf.GltfModel(gltf_file, read_file_bytes)
+
             for scene in model.scenes:
-                index_byte_count = 0
                 for mesh_index in (
                     mesh_index
                     for mesh_index, node_indices in scene.mesh_index_to_node_indices.items()
                     if node_indices
                 ):
-
-                    pass
-                    # print(mesh_index)
+                    print(model.meshes[mesh_index])
+            print()
 
     with kt.graphics_app.run_graphics() as app:
         readback_buffer = app.new_buffer(
