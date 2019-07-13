@@ -20,7 +20,8 @@ def test_gltf() -> None:
                 with open(os.path.join(os.path.dirname(gltf_path), uri), "rb") as file:
                     return file.read()
 
-            model = kt.gltf.GltfModel(gltf_file, read_file_bytes)
+            model = kt.gltf.from_json(gltf_file, read_file_bytes)
+            print(len(model.indices_bytes))
 
             for scene in model.scenes:
                 for mesh_index in (

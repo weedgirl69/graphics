@@ -11,9 +11,9 @@ AffineTransform = typing.Tuple[
 
 
 @dataclasses.dataclass(frozen=True)
-class GltfPrimitive:
-    indices_accessor_index: typing.Optional[int]
-    positions_accessor_index: int
+class Primitive:
+    indices_byte_offset: typing.Optional[int]
+    positions_byte_offset: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -23,11 +23,20 @@ class TransformSequence:
 
 
 @dataclasses.dataclass(frozen=True)
-class GltfScene:
+class Scene:
     node_index_to_parent_index: typing.Dict[int, typing.Optional[int]]
     mesh_index_to_node_indices: typing.Dict[int, typing.List[int]]
     transform_sequence: TransformSequence
     mesh_offsets: typing.List[int]
+
+
+@dataclasses.dataclass(frozen=True)
+class Model:
+    attributes_bytes: bytes
+    indices_bytes: bytes
+    meshes: typing.List[typing.List[Primitive]]
+    scenes: typing.List[Scene]
+    transform_sequence: TransformSequence
 
 
 def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
@@ -244,65 +253,86 @@ def _get_accessors(
 
 def _get_mesh_index_to_primitives(
     *, accessors: typing.List[bytes], meshes_json: typing.List[typing.Dict]
-) -> typing.List[typing.list[GltfPrimitive]]:
+) -> typing.List[typing.list[Primitive]]:
+    indices_bytes = bytearray()
+    attributes_bytes = bytearray()
 
-    index_bytes = bytearray()
+    def create_gltf_primitive(primitive_json: typing.Dict):
+        indices_byte_offset = None
+        if "indices" in primitive_json:
+            indices_byte_offset = len(indices_bytes)
+            indices_bytes.extend(accessors[primitive_json["indices"]])
 
-    for
+        attributes_json = primitive_json["attributes"]
+        positions_byte_offset = len(attributes_bytes)
+        attributes_bytes.extend(accessors[attributes_json["POSITION"]])
 
-    return [
+        return Primitive(
+            indices_byte_offset=indices_byte_offset,
+            positions_byte_offset=positions_byte_offset,
+        )
+
+    return (
         [
-            GltfPrimitive(
-                indices_accessor_index=primitive_json.get("indices", None),
-                positions_accessor_index=primitive_json["attributes"]["POSITION"],
-            )
-            for primitive_json in mesh_json["primitives"]
-        ]
-        for mesh_json in meshes_json
-    ]
-
-
-class GltfModel:
-    def __init__(self, file: typing.TextIO, uri_resolver):
-        gltf_json = json.load(file)
-
-        self.node_transforms = _get_node_transforms(gltf_json)
-        self.scenes: typing.List[GltfScene] = []
-
-        self.accessors = _get_accessors(
-            accessors_json=gltf_json["accessors"],
-            buffers_json=gltf_json["buffers"],
-            buffer_views_json=gltf_json["bufferViews"],
-            uri_resolver=uri_resolver,
-        )
-
-        self.meshes = _get_mesh_index_to_primitives(
-            accessors=self.accessors, meshes_json=gltf_json["meshes"]
-        )
-
-        nodes_json = gltf_json["nodes"]
-        for scene_json in gltf_json["scenes"]:
-            scene_node_indices = scene_json["nodes"]
-
-            node_index_to_parent_index = _get_node_index_to_parent_index(
-                nodes_json=nodes_json, node_indices=scene_node_indices
-            )
-            mesh_index_to_node_indices = _get_mesh_index_to_node_indices(
-                nodes_json=nodes_json, node_indices=scene_node_indices
-            )
-            transform_sequence = _get_transform_sequence(
-                node_index_to_parent_index, mesh_index_to_node_indices
-            )
-            mesh_offsets = [
-                transform_sequence.node_index_to_flattened_index[node_indices[0]]
-                for node_indices in mesh_index_to_node_indices.values()
+            [
+                create_gltf_primitive(primitive_json)
+                for primitive_json in mesh_json["primitives"]
             ]
+            for mesh_json in meshes_json
+        ],
+        indices_bytes,
+        attributes_bytes,
+    )
 
-            self.scenes.append(
-                GltfScene(
-                    node_index_to_parent_index,
-                    mesh_index_to_node_indices,
-                    transform_sequence,
-                    mesh_offsets,
-                )
+
+def from_json(file: typing.TextIO, uri_resolver):
+    gltf_json = json.load(file)
+
+    transform_sequence = _get_node_transforms(gltf_json)
+    scenes: typing.List[Scene] = []
+
+    accessors = _get_accessors(
+        accessors_json=gltf_json["accessors"],
+        buffers_json=gltf_json["buffers"],
+        buffer_views_json=gltf_json["bufferViews"],
+        uri_resolver=uri_resolver,
+    )
+
+    meshes, indices_bytes, attributes_bytes = _get_mesh_index_to_primitives(
+        accessors=accessors, meshes_json=gltf_json["meshes"]
+    )
+
+    nodes_json = gltf_json["nodes"]
+    for scene_json in gltf_json["scenes"]:
+        scene_node_indices = scene_json["nodes"]
+
+        node_index_to_parent_index = _get_node_index_to_parent_index(
+            nodes_json=nodes_json, node_indices=scene_node_indices
+        )
+        mesh_index_to_node_indices = _get_mesh_index_to_node_indices(
+            nodes_json=nodes_json, node_indices=scene_node_indices
+        )
+        transform_sequence = _get_transform_sequence(
+            node_index_to_parent_index, mesh_index_to_node_indices
+        )
+        mesh_offsets = [
+            transform_sequence.node_index_to_flattened_index[node_indices[0]]
+            for node_indices in mesh_index_to_node_indices.values()
+        ]
+
+        scenes.append(
+            Scene(
+                node_index_to_parent_index,
+                mesh_index_to_node_indices,
+                transform_sequence,
+                mesh_offsets,
             )
+        )
+
+    return Model(
+        attributes_bytes=attributes_bytes,
+        indices_bytes=indices_bytes,
+        meshes=meshes,
+        scenes=scenes,
+        transform_sequence=transform_sequence,
+    )
