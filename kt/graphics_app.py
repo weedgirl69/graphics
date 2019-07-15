@@ -15,6 +15,7 @@ from typing import (
     Union,
 )
 import functools
+import types
 import vulkan as vk
 import shaderc
 import kt
@@ -69,7 +70,7 @@ class VulkanContext:
     vk_bind_image_memory2: Callable
     memory_types: Dict[kt.MemoryType, int]
     errors: List[str]
-    allocations: List[kt.DeviceMemory]
+    allocations: Dict[object, kt.DeviceMemory]
     resources: List[VulkanResource]
 
 
@@ -357,8 +358,6 @@ class GraphicsApp:
             for memory_type_index, resources in memory_type_index_to_resources.items()
         }
 
-        self.context.allocations.extend(memory_type_index_to_memory.values())
-
         mappable_memory_types = (
             self.context.memory_types[kt.MemoryType.Downloadable]
             | self.context.memory_types[kt.MemoryType.Uploadable]
@@ -435,7 +434,22 @@ class GraphicsApp:
         for resource, value in initial_values.items():
             mappings[resource][: len(value)] = value
 
+        mappings = types.MappingProxyType(mappings)
+
+        self.context.allocations[
+            frozenset(mappings.keys())
+        ] = memory_type_index_to_memory.values()
+
         return mappings
+
+    def delete_memory_set(
+        self, memory_set: Dict[Union[kt.Buffer, kt.Image], vk.ffi.buffer]
+    ):
+        memory_key = frozenset(memory_set.keys())
+        for memory in self.context.allocations[memory_key]:
+            vk.vkFreeMemory(self.context.device, memory, None)
+
+        del self.context.allocations[memory_key]
 
     @_add_to_resources
     def new_pipeline(
@@ -652,7 +666,7 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
         vk.vkGetPhysicalDeviceMemoryProperties(physical_device)
     )
 
-    allocations: List[kt.DeviceMemory] = []
+    allocations: Dict[object, kt.DeviceMemory] = {}
     resources: List[VulkanResource] = []
 
     try:
@@ -682,7 +696,11 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
                 destructors[resource_type] = getattr(vk, "vkDestroy" + type_basename)
             destructors[resource_type](device, resource, None)
 
-        for memory in allocations:
+        for memory in (
+            memory
+            for allocations_list in allocations.values()
+            for memory in allocations_list
+        ):
             vk.vkFreeMemory(device, memory, None)
 
         vk.vkDestroyDevice(device, None)

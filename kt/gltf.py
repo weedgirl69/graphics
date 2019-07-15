@@ -1,4 +1,5 @@
 from __future__ import annotations
+import array
 import base64
 import collections
 import json
@@ -11,9 +12,17 @@ AffineTransform = typing.Tuple[
 
 
 @dataclasses.dataclass(frozen=True)
+class IndexData:
+    byte_offset: int
+    index_size: int
+
+
+@dataclasses.dataclass(frozen=True)
 class Primitive:
-    indices_byte_offset: typing.Optional[int]
+    count: int
+    index_data: typing.Optional[IndexData]
     positions_byte_offset: int
+    normals_byte_offset: typing.Optional[int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -35,8 +44,8 @@ class Model:
     attributes_bytes: bytes
     indices_bytes: bytes
     meshes: typing.List[typing.List[Primitive]]
+    node_transforms: typing.List[AffineTransform]
     scenes: typing.List[Scene]
-    transform_sequence: TransformSequence
 
 
 def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
@@ -216,7 +225,6 @@ def _get_accessors(
         if "bufferView" in accessor_json:
             buffer_view_json = buffer_views_json[accessor_json["bufferView"]]
             byte_offset += buffer_view_json.get("byteOffset", 0)
-            byte_count = buffer_view_json["byteLength"]
 
             component_size = {5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4}[
                 accessor_json["componentType"]
@@ -232,12 +240,14 @@ def _get_accessors(
             }[accessor_json["type"]]
             natural_stride = component_size * component_count
             byte_stride = buffer_view_json.get("byteStride", natural_stride)
+            byte_count = count * byte_stride
 
             buffer_bytes = buffers_data[buffer_view_json["buffer"]]
             if byte_stride == natural_stride:
                 accessor_data.append(
                     buffer_bytes[byte_offset : byte_offset + byte_count]
                 )
+
             else:
                 accessor_bytes = bytearray(byte_count)
                 for i in range(count):
@@ -252,24 +262,69 @@ def _get_accessors(
 
 
 def _get_mesh_index_to_primitives(
-    *, accessors: typing.List[bytes], meshes_json: typing.List[typing.Dict]
-) -> typing.List[typing.list[Primitive]]:
+    *,
+    accessors: typing.List[bytes],
+    accessors_json: typing.List[typing.Dict],
+    meshes_json: typing.List[typing.Dict],
+) -> typing.Tuple[typing.List[typing.list[Primitive]], bytes, bytes]:
     indices_bytes = bytearray()
     attributes_bytes = bytearray()
+    indices_accessor_index_to_upsampled_indices_offset = {}
+
+    def get_index_data_and_count(
+        indices_accessor_index: int
+    ) -> typing.Tuple[IndexData, int]:
+        byte_offset = len(indices_bytes)
+        index_size = 2
+        accessor_json = accessors_json[indices_accessor_index]
+        index_component_type = accessor_json["componentType"]
+        if index_component_type == 5121:
+            if (
+                indices_accessor_index
+                in indices_accessor_index_to_upsampled_indices_offset
+            ):
+                byte_offset = indices_accessor_index_to_upsampled_indices_offset[
+                    indices_accessor_index
+                ]
+            else:
+                indices_bytes.extend(
+                    array.array(
+                        "H", list(index for index in accessors[indices_accessor_index])
+                    )
+                )
+        else:
+            if index_component_type == 5125:
+                index_size = 4
+            indices_bytes.extend(accessors[indices_accessor_index])
+        return (
+            IndexData(byte_offset=byte_offset, index_size=index_size),
+            accessor_json["count"],
+        )
 
     def create_gltf_primitive(primitive_json: typing.Dict):
-        indices_byte_offset = None
-        if "indices" in primitive_json:
-            indices_byte_offset = len(indices_bytes)
-            indices_bytes.extend(accessors[primitive_json["indices"]])
-
         attributes_json = primitive_json["attributes"]
+        positions_accessor_index = attributes_json["POSITION"]
+
+        index_data = None
+        count = None
+        if "indices" in primitive_json:
+            index_data, count = get_index_data_and_count(primitive_json["indices"])
+        else:
+            count = accessors_json[positions_accessor_index]["count"]
+
         positions_byte_offset = len(attributes_bytes)
-        attributes_bytes.extend(accessors[attributes_json["POSITION"]])
+        attributes_bytes.extend(accessors[positions_accessor_index])
+
+        normals_byte_offset = None
+        if "NORMAL" in attributes_json:
+            normals_byte_offset = len(attributes_bytes)
+            attributes_bytes.extend(accessors[attributes_json["NORMAL"]])
 
         return Primitive(
-            indices_byte_offset=indices_byte_offset,
+            count=count,
+            index_data=index_data,
             positions_byte_offset=positions_byte_offset,
+            normals_byte_offset=normals_byte_offset,
         )
 
     return (
@@ -288,8 +343,7 @@ def _get_mesh_index_to_primitives(
 def from_json(file: typing.TextIO, uri_resolver):
     gltf_json = json.load(file)
 
-    transform_sequence = _get_node_transforms(gltf_json)
-    scenes: typing.List[Scene] = []
+    node_transforms = _get_node_transforms(gltf_json)
 
     accessors = _get_accessors(
         accessors_json=gltf_json["accessors"],
@@ -299,10 +353,13 @@ def from_json(file: typing.TextIO, uri_resolver):
     )
 
     meshes, indices_bytes, attributes_bytes = _get_mesh_index_to_primitives(
-        accessors=accessors, meshes_json=gltf_json["meshes"]
+        accessors=accessors,
+        accessors_json=gltf_json["accessors"],
+        meshes_json=gltf_json["meshes"],
     )
 
     nodes_json = gltf_json["nodes"]
+    scenes: typing.List[Scene] = list()
     for scene_json in gltf_json["scenes"]:
         scene_node_indices = scene_json["nodes"]
 
@@ -332,7 +389,7 @@ def from_json(file: typing.TextIO, uri_resolver):
     return Model(
         attributes_bytes=attributes_bytes,
         indices_bytes=indices_bytes,
+        node_transforms=node_transforms,
         meshes=meshes,
         scenes=scenes,
-        transform_sequence=transform_sequence,
     )

@@ -5,5 +5,5 @@ setup(
     packages=["kt", "shaderc"],
     setup_requires=["pytest-runner"],
     install_requires=["vulkan"],
-    tests_require=["pytest", "pytest-cov", "pypng", "numpy"],
+    tests_require=["numpy", "pytest", "pytest-cov", "pypng", "pytest-xdist"],
 )

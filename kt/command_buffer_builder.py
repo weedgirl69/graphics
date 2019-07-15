@@ -146,6 +146,29 @@ class CommandBufferBuilder:
             ),
         )
 
+    def copy_buffer_to_buffer(
+        self,
+        *,
+        source_buffer: Buffer,
+        source_offset: int = 0,
+        destination_buffer: Buffer,
+        destination_offset: int = 0,
+        byte_count: int,
+    ):
+        vk.vkCmdCopyBuffer(
+            self.command_buffer,
+            source_buffer,
+            destination_buffer,
+            regionCount=1,
+            pRegions=[
+                vk.VkBufferCopy(
+                    srcOffset=source_offset,
+                    dstOffset=destination_offset,
+                    size=byte_count,
+                )
+            ],
+        )
+
     def copy_buffer_to_image(
         self, *, buffer: Buffer, image: Image, width: int, height: int
     ) -> None:
