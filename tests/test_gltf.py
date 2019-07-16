@@ -4,6 +4,7 @@ import kt.gltf
 import glob
 import png
 import numpy as np
+import array
 import kt
 import kt.command_buffer_builder
 import kt.graphics_app
@@ -45,6 +46,88 @@ def test_bounds():
             node_transforms[destination_index] = tuple(
                 np.dot(columns[i], rows[j]) for i in range(3) for j in range(4)
             )
+
+
+def _render_model(
+    *,
+    attributes_buffer: kt.Buffer,
+    command_buffer_builder: kt.command_buffer_builder.CommandBufferBuilder,
+    index_buffer: kt.Buffer,
+    instance_buffer: kt.Buffer,
+    instance_memory: kt.vk.ffi.buffer,
+    model: kt.gltf.Model
+):
+    scene = model.scenes[0]
+    node_transforms = [
+        model.node_transforms[flattened_index]
+        for flattened_index in scene.transform_sequence.node_index_to_flattened_index
+    ]
+    print(node_transforms)
+    for (
+        source_index,
+        destination_index,
+    ) in scene.transform_sequence.transform_source_index_to_destination_index:
+        source_transform = node_transforms[source_index]
+        destination_transform = node_transforms[destination_index]
+
+        columns = [source_transform[i : i + 4] for i in range(0, 12, 4)]
+        rows = [
+            list(destination_transform[row_index::4]) + [row_index == 3]
+            for row_index in range(4)
+        ]
+
+        node_transforms[destination_index] = tuple(
+            np.dot(columns[i], rows[j]) for j in range(4) for i in range(3)
+        )
+    print(node_transforms)
+
+    scene_instance_count = sum(
+        len(node_indices) for node_indices in scene.mesh_index_to_node_indices.values()
+    )
+    transform_bytes = array.array(
+        "f",
+        (
+            component
+            for transform in node_transforms[:scene_instance_count]
+            for component in transform
+        ),
+    ).tobytes()
+    print(len(transform_bytes))
+    print(transform_bytes)
+    instance_memory[: len(transform_bytes)] = transform_bytes
+
+    for mesh_index in range(len(scene.mesh_index_to_node_indices)):
+        instance_count = len(scene.mesh_index_to_node_indices[mesh_index])
+        if not instance_count:
+            continue
+
+        for primitive in model.meshes[mesh_index]:
+            command_buffer_builder.bind_vertex_buffers(
+                [attributes_buffer, attributes_buffer, instance_buffer],
+                byte_offsets=[
+                    primitive.positions_byte_offset,
+                    primitive.normals_byte_offset or 0,
+                    scene.mesh_index_to_base_instance_offset[mesh_index] * 3 * 4 * 4,
+                ],
+            )
+
+            print(scene.mesh_index_to_base_instance_offset[mesh_index])
+
+            if primitive.index_data:
+                command_buffer_builder.bind_index_buffer(
+                    buffer=index_buffer,
+                    index_type={2: kt.IndexType.UINT16, 4: kt.IndexType.UINT32}[
+                        primitive.index_data.index_size
+                    ],
+                    byte_offset=primitive.index_data.byte_offset,
+                )
+                command_buffer_builder.draw_indexed(
+                    index_count=primitive.count, instance_count=instance_count
+                )
+            else:
+                command_buffer_builder.draw(
+                    vertex_count=primitive.count, instance_count=instance_count
+                )
 
 
 def test_gltf() -> None:
@@ -145,30 +228,44 @@ def test_gltf() -> None:
                 layers=1,
             )
             shader_set = app.new_shader_set(
-                "tests/position_normal.vert.glsl", "tests/metallic_roughness.frag.glsl"
+                "tests/shaders/gltf.vert.glsl", "tests/shaders/gltf.frag.glsl"
             )
             pipeline_layout = app.new_pipeline_layout()
             pipeline = app.new_pipeline(
                 kt.new_graphics_pipeline_description(
                     pipeline_layout=pipeline_layout,
                     render_pass=render_pass,
-                    vertex_shader=shader_set.position_normal_vert,
-                    fragment_shader=shader_set.metallic_roughness_frag,
+                    vertex_shader=shader_set.gltf_vert,
+                    fragment_shader=shader_set.gltf_frag,
                     vertex_attributes=[
                         kt.new_vertex_attribute(
-                            location=0,
                             binding=0,
+                            location=0,
                             pixel_format=kt.Format.R32G32B32_FLOAT,
                         ),
                         kt.new_vertex_attribute(
-                            location=1,
                             binding=1,
+                            location=1,
                             pixel_format=kt.Format.R32G32B32_FLOAT,
                         ),
+                    ]
+                    + [
+                        kt.new_vertex_attribute(
+                            binding=2,
+                            location=2 + i,
+                            offset=i * 4 * 4,
+                            pixel_format=kt.Format.R32G32B32A32_FLOAT,
+                        )
+                        for i in range(3)
                     ],
                     vertex_bindings=[
                         kt.new_vertex_binding(binding=0, stride=12),
                         kt.new_vertex_binding(binding=1, stride=12),
+                        kt.new_vertex_binding(
+                            binding=2,
+                            stride=3 * 4 * 4,
+                            input_rate=kt.VertexInputRate.PER_INSTANCE,
+                        ),
                     ],
                     multisample_description=kt.new_multisample_description(
                         sample_count=sample_count
@@ -184,7 +281,9 @@ def test_gltf() -> None:
             command_pool = app.new_command_pool()
 
             for gltf_path in glob.glob(
-                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
+                os.path.join(
+                    GLTF_SAMPLE_MODELS_DIR, "2.0/BoomBoxWithAxes/glTF-Embedded/*.gltf"
+                )
             ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf")):
                 print(gltf_path)
                 with open(gltf_path) as gltf_file:
@@ -212,6 +311,17 @@ def test_gltf() -> None:
                         if model.indices_bytes
                         else None
                     )
+                    instance_capacity = max(
+                        sum(
+                            len(node_indices)
+                            for node_indices in scene.mesh_index_to_node_indices.values()
+                        )
+                        for scene in model.scenes
+                    )
+                    instance_buffer = app.new_buffer(
+                        byte_count=instance_capacity * 3 * 4 * 4,
+                        usage=kt.BufferUsage.VERTEX,
+                    )
                     attributes_buffer = app.new_buffer(
                         byte_count=len(model.attributes_bytes),
                         usage=kt.BufferUsage.VERTEX
@@ -220,11 +330,12 @@ def test_gltf() -> None:
                     memory_set = app.new_memory_set(
                         device_optimal=([index_buffer] if index_buffer else [])
                         + ([attributes_buffer] if attributes_buffer else []),
-                        uploadable=[upload_buffer],
+                        uploadable=[upload_buffer, instance_buffer],
                         initial_values={
                             upload_buffer: model.indices_bytes + model.attributes_bytes
                         },
                     )
+                    instance_memory = memory_set[instance_buffer]
 
                     command_buffer = app.allocate_command_buffer(command_pool)
                     with kt.command_buffer_builder.CommandBufferBuilder(
@@ -250,39 +361,21 @@ def test_gltf() -> None:
                             render_pass=render_pass,
                             framebuffer=framebuffer,
                             clear_values=[
-                                kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
+                                kt.new_clear_value(color=(1.0, 0.0, 1.0, 1.0)),
                                 kt.new_clear_value(depth=1),
                             ],
                             width=width * 2,
                             height=height * 2,
                         )
 
-                        for mesh in model.meshes:
-                            for primitive in mesh:
-                                command_buffer_builder.bind_vertex_buffers(
-                                    [attributes_buffer, attributes_buffer],
-                                    byte_offsets=[
-                                        primitive.positions_byte_offset,
-                                        primitive.normals_byte_offset or 0,
-                                    ],
-                                )
-
-                                if primitive.index_data:
-                                    command_buffer_builder.bind_index_buffer(
-                                        buffer=index_buffer,
-                                        index_type={
-                                            2: kt.IndexType.UINT16,
-                                            4: kt.IndexType.UINT32,
-                                        }[primitive.index_data.index_size],
-                                        byte_offset=primitive.index_data.byte_offset,
-                                    )
-                                    command_buffer_builder.draw_indexed(
-                                        index_count=primitive.count
-                                    )
-                                else:
-                                    command_buffer_builder.draw(
-                                        vertex_count=primitive.count
-                                    )
+                        _render_model(
+                            attributes_buffer=attributes_buffer,
+                            command_buffer_builder=command_buffer_builder,
+                            index_buffer=index_buffer,
+                            instance_buffer=instance_buffer,
+                            instance_memory=instance_memory,
+                            model=model,
+                        )
 
                         command_buffer_builder.end_render_pass()
 
@@ -339,3 +432,4 @@ def test_gltf() -> None:
                     print()
     finally:
         print(app.errors)
+        assert not app.errors

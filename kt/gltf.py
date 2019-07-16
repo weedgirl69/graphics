@@ -11,8 +11,10 @@ AffineTransform = typing.Tuple[
 ]
 
 
-# @dataclasses.dataclass(frozen=True)
-# class Bounds:
+@dataclasses.dataclass(frozen=True)
+class Bounds:
+    min: typing.Tuple[float, float, float]
+    max: typing.Tuple[float, float, float]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -23,6 +25,7 @@ class IndexData:
 
 @dataclasses.dataclass(frozen=True)
 class Primitive:
+    bounds: Bounds
     count: int
     index_data: typing.Optional[IndexData]
     positions_byte_offset: int
@@ -37,10 +40,9 @@ class TransformSequence:
 
 @dataclasses.dataclass(frozen=True)
 class Scene:
-    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]]
     mesh_index_to_node_indices: typing.Dict[int, typing.List[int]]
     transform_sequence: TransformSequence
-    mesh_offsets: typing.List[int]
+    mesh_index_to_base_instance_offset: typing.List[int]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,7 +69,6 @@ def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]
         translation_x, translation_y, translation_z = node_json.get(
             "translation", (0.0, 0.0, 0.0)
         )
-
         # pylint: disable = invalid-name
         xx = rotation_x * rotation_x
         xy = rotation_x * rotation_y
@@ -92,7 +93,20 @@ def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]
         m20 = 2 * (xz - yw)
         m21 = 2 * (yz + xw)
         m22 = 1 - 2 * (xx + yy)
-
+        return (
+            scale_x * m00,
+            scale_y * m10,
+            scale_z * m20,
+            translation_x,
+            scale_x * m01,
+            scale_y * m11,
+            scale_z * m21,
+            translation_y,
+            scale_x * m02,
+            scale_y * m12,
+            scale_z * m22,
+            translation_z,
+        )
         return (
             scale_x * m00,
             scale_y * m01,
@@ -297,13 +311,20 @@ def _get_mesh_index_to_primitives(
     def create_gltf_primitive(primitive_json: typing.Dict):
         attributes_json = primitive_json["attributes"]
         positions_accessor_index = attributes_json["POSITION"]
+        positions_accessor_json = accessors_json[positions_accessor_index]
+
+        accessor_min = positions_accessor_json["min"]
+        accessor_max = positions_accessor_json["max"]
+        bounds = Bounds(
+            min=(accessor_min[0], accessor_min[1], accessor_min[2]),
+            max=(accessor_max[0], accessor_max[1], accessor_max[2]),
+        )
 
         index_data = None
-        count = None
         if "indices" in primitive_json:
             index_data, count = get_index_data_and_count(primitive_json["indices"])
         else:
-            count = accessors_json[positions_accessor_index]["count"]
+            count = positions_accessor_json["count"]
 
         positions_byte_offset = len(attributes_bytes)
         attributes_bytes.extend(accessors[positions_accessor_index])
@@ -314,6 +335,7 @@ def _get_mesh_index_to_primitives(
             attributes_bytes.extend(accessors[attributes_json["NORMAL"]])
 
         return Primitive(
+            bounds=bounds,
             count=count,
             index_data=index_data,
             positions_byte_offset=positions_byte_offset,
@@ -365,17 +387,16 @@ def from_json(file: typing.TextIO, uri_resolver):
         transform_sequence = _get_transform_sequence(
             node_index_to_parent_index, mesh_index_to_node_indices
         )
-        mesh_offsets = [
+        mesh_index_to_base_instance_offset = [
             transform_sequence.node_index_to_flattened_index[node_indices[0]]
             for node_indices in mesh_index_to_node_indices.values()
         ]
 
         scenes.append(
             Scene(
-                node_index_to_parent_index,
                 mesh_index_to_node_indices,
                 transform_sequence,
-                mesh_offsets,
+                mesh_index_to_base_instance_offset,
             )
         )
 
