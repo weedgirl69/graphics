@@ -11,6 +11,10 @@ AffineTransform = typing.Tuple[
 ]
 
 
+# @dataclasses.dataclass(frozen=True)
+# class Bounds:
+
+
 @dataclasses.dataclass(frozen=True)
 class IndexData:
     byte_offset: int
@@ -51,21 +55,10 @@ class Model:
 def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
     def get_transform(node_json: typing.Dict) -> AffineTransform:
         if "matrix" in node_json:
-            matrix_json = [float(component) for component in node_json["matrix"]]
-            return (
-                matrix_json[0],
-                matrix_json[1],
-                matrix_json[2],
-                matrix_json[4],
-                matrix_json[5],
-                matrix_json[6],
-                matrix_json[8],
-                matrix_json[9],
-                matrix_json[10],
-                matrix_json[12],
-                matrix_json[13],
-                matrix_json[14],
+            matrix_json = tuple(
+                float(component) for component in node_json["matrix"][:12]
             )
+            return matrix_json
 
         scale_x, scale_y, scale_z = node_json.get("scale", (1.0, 1.0, 1.0))
         rotation_x, rotation_y, rotation_z, rotation_w = node_json.get(
@@ -266,7 +259,7 @@ def _get_mesh_index_to_primitives(
     accessors: typing.List[bytes],
     accessors_json: typing.List[typing.Dict],
     meshes_json: typing.List[typing.Dict],
-) -> typing.Tuple[typing.List[typing.list[Primitive]], bytes, bytes]:
+) -> typing.Tuple[typing.List[typing.List[Primitive]], bytes, bytes]:
     indices_bytes = bytearray()
     attributes_bytes = bytearray()
     indices_accessor_index_to_upsampled_indices_offset = {}

@@ -3,6 +3,7 @@ import os.path
 import kt.gltf
 import glob
 import png
+import numpy as np
 import kt
 import kt.command_buffer_builder
 import kt.graphics_app
@@ -10,11 +11,43 @@ import kt.graphics_app
 
 TEST_IMAGE_SIZE = 512
 TEST_IMAGE_SAMPLE_COUNT = 3
+GLTF_SAMPLE_MODELS_DIR = os.environ["GLTF_SAMPLE_MODELS_DIR"]
+
+
+def test_bounds():
+    gltf_path = os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/Box/glTF/Box.gltf")
+
+    with open(gltf_path) as gltf_file:
+
+        def read_file_bytes(uri: str):
+            with open(os.path.join(os.path.dirname(gltf_path), uri), "rb") as file:
+                return file.read()
+
+        model = kt.gltf.from_json(gltf_file, read_file_bytes)
+        transform_sequence = model.scenes[0].transform_sequence
+        node_transforms = [
+            model.node_transforms[flattened_index]
+            for flattened_index in transform_sequence.node_index_to_flattened_index
+        ]
+        for (
+            source_index,
+            destination_index,
+        ) in transform_sequence.transform_source_index_to_destination_index:
+            source_transform = node_transforms[source_index]
+            destination_transform = node_transforms[destination_index]
+
+            columns = [destination_transform[i : i + 4] for i in range(0, 12, 4)]
+            rows = [
+                list(source_transform[row_index::4]) + [row_index == 3]
+                for row_index in range(4)
+            ]
+
+            node_transforms[destination_index] = tuple(
+                np.dot(columns[i], rows[j]) for i in range(3) for j in range(4)
+            )
 
 
 def test_gltf() -> None:
-    sample_models_dir = os.environ["GLTF_SAMPLE_MODELS_DIR"]
-
     try:
         with kt.graphics_app.run_graphics() as app:
             sample_count = 3
@@ -151,8 +184,8 @@ def test_gltf() -> None:
             command_pool = app.new_command_pool()
 
             for gltf_path in glob.glob(
-                os.path.join(sample_models_dir, "2.0/*/glTF-Embedded/*.gltf")
-            ) + glob.glob(os.path.join(sample_models_dir, "2.0/*/glTF/*.gltf")):
+                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
+            ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf")):
                 print(gltf_path)
                 with open(gltf_path) as gltf_file:
 
@@ -290,9 +323,7 @@ def test_gltf() -> None:
                             os.path.join(
                                 os.path.curdir,
                                 "tests/goldens",
-                                os.path.relpath(
-                                    gltf_path, os.environ["GLTF_SAMPLE_MODELS_DIR"]
-                                ),
+                                os.path.relpath(gltf_path, GLTF_SAMPLE_MODELS_DIR),
                             )
                             + ".png"
                         )
