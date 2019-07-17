@@ -57,10 +57,21 @@ class Model:
 def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
     def get_transform(node_json: typing.Dict) -> AffineTransform:
         if "matrix" in node_json:
-            matrix_json = tuple(
-                float(component) for component in node_json["matrix"][:12]
+            matrix = [float(_) for _ in node_json["matrix"]]
+            return (
+                matrix[0],
+                matrix[4],
+                matrix[8],
+                matrix[12],
+                matrix[1],
+                matrix[5],
+                matrix[9],
+                matrix[13],
+                matrix[2],
+                matrix[6],
+                matrix[10],
+                matrix[14],
             )
-            return matrix_json
 
         scale_x, scale_y, scale_z = node_json.get("scale", (1.0, 1.0, 1.0))
         rotation_x, rotation_y, rotation_z, rotation_w = node_json.get(
@@ -195,7 +206,9 @@ def _get_transform_sequence(
                 )
             )
 
-    for node_indices in mesh_index_to_node_indices.values():
+    for node_indices in (
+        value for (key, value) in sorted(mesh_index_to_node_indices.items())
+    ):
         for node_index in node_indices:
             node_index_to_flattened_index[node_index] = current_instance_index
             current_instance_index += 1
@@ -389,7 +402,9 @@ def from_json(file: typing.TextIO, uri_resolver):
         )
         mesh_index_to_base_instance_offset = [
             transform_sequence.node_index_to_flattened_index[node_indices[0]]
-            for node_indices in mesh_index_to_node_indices.values()
+            for node_indices in (
+                value for (key, value) in sorted(mesh_index_to_node_indices.items())
+            )
         ]
 
         scenes.append(

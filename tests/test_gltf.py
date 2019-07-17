@@ -58,28 +58,40 @@ def _render_model(
     model: kt.gltf.Model
 ):
     scene = model.scenes[0]
-    node_transforms = [
-        model.node_transforms[flattened_index]
-        for flattened_index in scene.transform_sequence.node_index_to_flattened_index
-    ]
-    print(node_transforms)
+    flattened_node_transforms = [None] * len(model.node_transforms)
+
+    for (
+        node_index,
+        flattened_index,
+    ) in scene.transform_sequence.node_index_to_flattened_index.items():
+        flattened_node_transforms[flattened_index] = model.node_transforms[node_index]
+    import pprint
+
+    pprint.pprint(scene.transform_sequence.node_index_to_flattened_index)
+    pprint.pprint(flattened_node_transforms)
+
     for (
         source_index,
         destination_index,
     ) in scene.transform_sequence.transform_source_index_to_destination_index:
-        source_transform = node_transforms[source_index]
-        destination_transform = node_transforms[destination_index]
+        print(source_index, destination_index)
+        source_transform = flattened_node_transforms[source_index]
+        destination_transform = flattened_node_transforms[destination_index]
 
         columns = [source_transform[i : i + 4] for i in range(0, 12, 4)]
-        rows = [
-            list(destination_transform[row_index::4]) + [row_index == 3]
-            for row_index in range(4)
-        ]
+        rows = [list(destination_transform[row_index::4]) for row_index in range(4)]
 
-        node_transforms[destination_index] = tuple(
-            np.dot(columns[i], rows[j]) for j in range(4) for i in range(3)
-        )
-    print(node_transforms)
+        def dot(lhs, rhs):
+            x = sum(_a * _b for _a, _b in zip(lhs, rhs))
+            return x
+
+        combined_transform = [None] * 12
+        for x in range(3):
+            for y in range(4):
+                combined_transform[x * 4 + y] = (
+                    dot(columns[x][:3], rows[y]) + columns[x][-1]
+                )
+        flattened_node_transforms[destination_index] = combined_transform
 
     scene_instance_count = sum(
         len(node_indices) for node_indices in scene.mesh_index_to_node_indices.values()
@@ -88,14 +100,21 @@ def _render_model(
         "f",
         (
             component
-            for transform in node_transforms[:scene_instance_count]
+            for transform in flattened_node_transforms[:scene_instance_count]
             for component in transform
         ),
     ).tobytes()
-    print(len(transform_bytes))
-    print(transform_bytes)
+    print(
+        array.array(
+            "f",
+            (
+                component
+                for transform in flattened_node_transforms[:scene_instance_count]
+                for component in transform
+            ),
+        )
+    )
     instance_memory[: len(transform_bytes)] = transform_bytes
-
     for mesh_index in range(len(scene.mesh_index_to_node_indices)):
         instance_count = len(scene.mesh_index_to_node_indices[mesh_index])
         if not instance_count:
@@ -110,8 +129,6 @@ def _render_model(
                     scene.mesh_index_to_base_instance_offset[mesh_index] * 3 * 4 * 4,
                 ],
             )
-
-            print(scene.mesh_index_to_base_instance_offset[mesh_index])
 
             if primitive.index_data:
                 command_buffer_builder.bind_index_buffer(
@@ -281,9 +298,7 @@ def test_gltf() -> None:
             command_pool = app.new_command_pool()
 
             for gltf_path in glob.glob(
-                os.path.join(
-                    GLTF_SAMPLE_MODELS_DIR, "2.0/BoomBoxWithAxes/glTF-Embedded/*.gltf"
-                )
+                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
             ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf")):
                 print(gltf_path)
                 with open(gltf_path) as gltf_file:
