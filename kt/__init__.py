@@ -1,5 +1,7 @@
 import collections
+import dataclasses
 from enum import Enum, IntEnum
+import typing
 from typing import List, NewType, Optional, Tuple
 import vulkan as vk
 
@@ -9,6 +11,7 @@ ClearValue = NewType("ClearValue", object)
 CommandBuffer = NewType("CommandBuffer", object)
 CommandPool = NewType("CommandPool", object)
 DepthDescription = NewType("DepthDescription", object)
+DescriptorSetLayoutBinding = NewType("DescriptorSetLayoutBinding", object)
 DescriptorPool = NewType("DescriptorPool", object)
 DescriptorSet = NewType("DescriptorSet", object)
 DescriptorSetLayout = NewType("DescriptorSetLayout", object)
@@ -36,6 +39,7 @@ class BufferUsage(IntEnum):
     INDEX = vk.VK_BUFFER_USAGE_INDEX_BUFFER_BIT
     TRANSFER_DESTINATION = vk.VK_BUFFER_USAGE_TRANSFER_DST_BIT
     TRANSFER_SOURCE = vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+    UNIFORM = vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
     VERTEX = vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
 
 
@@ -45,6 +49,7 @@ class CommandBufferUsage(IntEnum):
 
 class DescriptorType(IntEnum):
     COMBINED_IMAGE_SAMPLER = vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+    UNIFORM_BUFFER = vk.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
 
 
 class Filter(IntEnum):
@@ -102,6 +107,11 @@ class MemoryType(Enum):
     LazilyAllocated = 3
 
 
+class ShaderStage(IntEnum):
+    VERTEX = vk.VK_SHADER_STAGE_VERTEX_BIT
+    FRAGMENT = vk.VK_SHADER_STAGE_FRAGMENT_BIT
+
+
 class StoreOp(IntEnum):
     DISCARD = vk.VK_ATTACHMENT_STORE_OP_DONT_CARE
     STORE = vk.VK_ATTACHMENT_STORE_OP_STORE
@@ -156,6 +166,23 @@ def new_depth_description(
             depthWriteEnable=write_enabled,
             depthCompareOp=vk.VK_COMPARE_OP_LESS,
         )
+    )
+
+
+def new_descriptor_layout_binding(
+    *,
+    binding: int,
+    count: int = 1,
+    immutable_samplers: typing.Optional[typing.List[Sampler]] = None,
+    stage: ShaderStage,
+    descriptor_type: DescriptorType,
+):
+    return vk.VkDescriptorSetLayoutBinding(
+        binding=binding,
+        descriptorType=descriptor_type,
+        descriptorCount=count,
+        stageFlags=stage,
+        pImmutableSamplers=immutable_samplers,
     )
 
 
@@ -316,18 +343,31 @@ def new_vertex_binding(
 
 def new_write_descriptor_image(
     *,
-    descriptor_set: DescriptorSet,
     binding: int,
-    image_views_and_layouts: List[Tuple[ImageView, ImageLayout]],
+    buffers_offsets_and_byte_counts: typing.Optional[
+        typing.List[typing.Tuple[Buffer, int, int]]
+    ] = None,
+    descriptor_set: DescriptorSet,
+    image_views_and_layouts: typing.Optional[
+        typing.List[typing.Tuple[ImageView, ImageLayout]]
+    ] = None,
 ) -> WriteDescriptorImage:
     return WriteDescriptorImage(
         vk.VkWriteDescriptorSet(
-            dstSet=descriptor_set,
-            dstBinding=binding,
             descriptorType=DescriptorType.COMBINED_IMAGE_SAMPLER,
+            dstBinding=binding,
+            dstSet=descriptor_set,
+            pBufferInfo=[
+                vk.VkDescriptorBufferInfo(
+                    buffer=buffer, offset=offset, range=byte_count
+                )
+                for buffer, offset, byte_count in (
+                    buffers_offsets_and_byte_counts or []
+                )
+            ],
             pImageInfo=[
                 vk.VkDescriptorImageInfo(imageView=image_view, imageLayout=image_layout)
-                for image_view, image_layout in image_views_and_layouts
+                for image_view, image_layout in (image_views_and_layouts or [])
             ],
         )
     )

@@ -2,6 +2,7 @@ import collections
 import contextlib
 import dataclasses
 import itertools
+import typing
 from typing import (
     Any,
     Callable,
@@ -143,17 +144,22 @@ class GraphicsApp:
         )
 
     @_add_to_resources
-    def new_descriptor_pool(self) -> kt.DescriptorPool:
+    def new_descriptor_pool(
+        self,
+        *,
+        max_set_count: int,
+        descriptor_type_counts: typing.Dict[kt.DescriptorType, int],
+    ) -> kt.DescriptorPool:
         return kt.DescriptorPool(
             vk.vkCreateDescriptorPool(
                 self.context.device,
                 vk.VkDescriptorPoolCreateInfo(
-                    maxSets=1,
+                    maxSets=max_set_count,
                     pPoolSizes=[
                         vk.VkDescriptorPoolSize(
-                            vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                            descriptorCount=1,
+                            type=descriptor_type, descriptorCount=count
                         )
+                        for descriptor_type, count in descriptor_type_counts.items()
                     ],
                 ),
                 None,
@@ -162,17 +168,8 @@ class GraphicsApp:
 
     @_add_to_resources
     def new_descriptor_set_layout(
-        self, immutable_samplers: Optional[List[kt.Sampler]] = None
+        self, bindings: typing.List[kt.DescriptorSetLayoutBinding] = None
     ) -> kt.DescriptorSetLayout:
-        bindings = [
-            vk.VkDescriptorSetLayoutBinding(
-                binding=0,
-                descriptorType=vk.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                descriptorCount=1,
-                stageFlags=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
-                pImmutableSamplers=immutable_samplers,
-            )
-        ]
         return kt.DescriptorSetLayout(
             vk.vkCreateDescriptorSetLayout(
                 self.context.device,

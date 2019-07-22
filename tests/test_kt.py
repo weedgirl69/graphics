@@ -400,8 +400,20 @@ def test_texture(app, test_data):
         mip_count=texture_mip_count,
     )
     sampler = app.new_sampler(min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR)
-    descriptor_set_layout = app.new_descriptor_set_layout(immutable_samplers=[sampler])
-    descriptor_pool = app.new_descriptor_pool()
+    descriptor_set_layout = app.new_descriptor_set_layout(
+        [
+            kt.new_descriptor_layout_binding(
+                binding=0,
+                stage=kt.ShaderStage.FRAGMENT,
+                descriptor_type=kt.DescriptorType.COMBINED_IMAGE_SAMPLER,
+                immutable_samplers=[sampler],
+            )
+        ]
+    )
+    descriptor_pool = app.new_descriptor_pool(
+        max_set_count=1,
+        descriptor_type_counts={kt.DescriptorType.COMBINED_IMAGE_SAMPLER: 1},
+    )
     test_texture_descriptor_set = app.allocate_descriptor_sets(
         descriptor_pool=descriptor_pool, descriptor_set_layouts=[descriptor_set_layout]
     )[0]

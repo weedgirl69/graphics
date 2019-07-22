@@ -153,6 +153,9 @@ def test_gltf() -> None:
             sample_count = 3
             width = 1024
             height = 1024
+            frame_uniform_buffer = app.new_buffer(
+                byte_count=4 * 4 * 4, usage=kt.BufferUsage.UNIFORM
+            )
             color_target_image = app.new_image(
                 format=kt.Format.R8G8B8A8_SRGB,
                 usage=kt.ImageUsage.COLOR_ATTACHMENT,
@@ -186,10 +189,12 @@ def test_gltf() -> None:
 
             mapped_memory = app.new_memory_set(
                 device_optimal=[resolve_target_image, downsampled_target_image],
-                lazily_allocated=[color_target_image, depth_target_image],
                 downloadable=[readback_buffer],
+                lazily_allocated=[color_target_image, depth_target_image],
+                uploadable=[frame_uniform_buffer],
             )
             readback_buffer_memory = mapped_memory[readback_buffer]
+            frame_uniform_memory = mapped_memory[frame_uniform_buffer]
 
             render_pass = app.new_render_pass(
                 attachments=[
@@ -246,6 +251,35 @@ def test_gltf() -> None:
             )
             shader_set = app.new_shader_set(
                 "tests/shaders/gltf.vert.glsl", "tests/shaders/gltf.frag.glsl"
+            )
+            descriptor_set_layout = app.new_descriptor_set_layout(
+                [
+                    kt.new_descriptor_layout_binding(
+                        binding=0,
+                        count=1,
+                        stage=kt.ShaderStage.VERTEX,
+                        descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
+                    )
+                ]
+            )
+            descriptor_pool = app.new_descriptor_pool(
+                max_set_count=1,
+                descriptor_type_counts={kt.DescriptorType.UNIFORM_BUFFER: 1},
+            )
+            descriptor_sets = app.allocate_descriptor_sets(
+                descriptor_pool=descriptor_pool,
+                descriptor_set_layouts=[descriptor_set_layout],
+            )
+            app.update_descriptor_sets(
+                descriptor_set_writes=[
+                    kt.new_write_descriptor_image(
+                        binding=0,
+                        buffers_offsets_and_byte_counts=[
+                            (frame_uniform_buffer, 0, 4 * 4 * 4)
+                        ],
+                        descriptor_set=descriptor_sets[0],
+                    )
+                ]
             )
             pipeline_layout = app.new_pipeline_layout()
             pipeline = app.new_pipeline(

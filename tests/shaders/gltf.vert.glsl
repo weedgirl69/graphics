@@ -6,6 +6,10 @@ layout(location=2)in mat3x4 in_instance_transform;
 layout(location=0)out vec3 out_normal;
 layout(location=1)out vec3 out_view_direction;
 
+layout(binding = 0) uniform FrameUniforms {
+    mat4 view_projection;
+};
+
 void main(){
 
     float far=1000;
