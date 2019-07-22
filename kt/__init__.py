@@ -341,33 +341,32 @@ def new_vertex_binding(
     )
 
 
-def new_write_descriptor_image(
-    *,
-    binding: int,
-    buffers_offsets_and_byte_counts: typing.Optional[
-        typing.List[typing.Tuple[Buffer, int, int]]
-    ] = None,
-    descriptor_set: DescriptorSet,
-    image_views_and_layouts: typing.Optional[
-        typing.List[typing.Tuple[ImageView, ImageLayout]]
-    ] = None,
-) -> WriteDescriptorImage:
-    return WriteDescriptorImage(
-        vk.VkWriteDescriptorSet(
-            descriptorType=DescriptorType.COMBINED_IMAGE_SAMPLER,
-            dstBinding=binding,
-            dstSet=descriptor_set,
-            pBufferInfo=[
-                vk.VkDescriptorBufferInfo(
-                    buffer=buffer, offset=offset, range=byte_count
-                )
-                for buffer, offset, byte_count in (
-                    buffers_offsets_and_byte_counts or []
-                )
-            ],
-            pImageInfo=[
-                vk.VkDescriptorImageInfo(imageView=image_view, imageLayout=image_layout)
-                for image_view, image_layout in (image_views_and_layouts or [])
-            ],
-        )
-    )
+@dataclasses.dataclass
+class DescriptorBufferInfo:
+    buffer: Buffer
+    byte_count: int
+    byte_offset: int
+
+
+@dataclasses.dataclass
+class DescriptorImageInfo:
+    image_view: ImageView
+    layout: ImageLayout
+
+
+@dataclasses.dataclass
+class DescriptorBufferWrites:
+    binding: int
+    buffer_infos: typing.List[DescriptorBufferInfo]
+    count: int
+    descriptor_set: DescriptorSet
+    descriptor_type: DescriptorType
+
+
+@dataclasses.dataclass
+class DescriptorImageWrites:
+    binding: int
+    count: int
+    descriptor_set: DescriptorSet
+    descriptor_type: DescriptorType
+    image_infos: typing.List[DescriptorImageInfo]

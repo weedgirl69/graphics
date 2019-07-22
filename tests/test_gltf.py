@@ -271,13 +271,19 @@ def test_gltf() -> None:
                 descriptor_set_layouts=[descriptor_set_layout],
             )
             app.update_descriptor_sets(
-                descriptor_set_writes=[
-                    kt.new_write_descriptor_image(
+                buffer_writes=[
+                    kt.DescriptorBufferWrites(
                         binding=0,
-                        buffers_offsets_and_byte_counts=[
-                            (frame_uniform_buffer, 0, 4 * 4 * 4)
+                        buffer_infos=[
+                            kt.DescriptorBufferInfo(
+                                buffer=frame_uniform_buffer,
+                                byte_count=4 * 4 * 4,
+                                byte_offset=0,
+                            )
                         ],
+                        count=1,
                         descriptor_set=descriptor_sets[0],
+                        descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
                     )
                 ]
             )

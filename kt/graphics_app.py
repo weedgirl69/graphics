@@ -522,11 +522,69 @@ class GraphicsApp:
         self.context.resources.extend(shader_modules)
         return collections.namedtuple("ShaderSet", attribute_names)(*shader_modules)
 
-    def update_descriptor_sets(self, descriptor_set_writes: List[object]) -> None:
+    def update_descriptor_sets(
+        self,
+        buffer_writes: typing.Optional[typing.List[kt.DescriptorBufferWrites]] = None,
+        image_writes: typing.Optional[typing.List[kt.DescriptorImageWrites]] = None,
+    ) -> None:
+        descriptor_writes = []
+
+        if buffer_writes:
+            buffer_write_infos = [
+                [
+                    vk.VkDescriptorBufferInfo(
+                        buffer=buffer_info.buffer,
+                        offset=buffer_info.byte_offset,
+                        range=buffer_info.byte_count,
+                    )
+                    for buffer_info in buffer_write.buffer_infos
+                ]
+                for buffer_write in buffer_writes
+            ]
+
+            descriptor_writes.extend(
+                [
+                    vk.VkWriteDescriptorSet(
+                        dstSet=buffer_write.descriptor_set,
+                        dstBinding=buffer_write.binding,
+                        descriptorCount=buffer_write.count,
+                        descriptorType=buffer_write.descriptor_type,
+                        pBufferInfo=buffer_infos,
+                    )
+                    for buffer_write, buffer_infos in zip(
+                        buffer_writes, buffer_write_infos
+                    )
+                ]
+            )
+
+        if image_writes:
+            image_write_infos = [
+                [
+                    vk.VkDescriptorImageInfo(
+                        imageView=image_info.image_view, imageLayout=image_info.layout
+                    )
+                    for image_info in image_write.image_infos
+                ]
+                for image_write in image_writes
+            ]
+
+            descriptor_writes.extend(
+                [
+                    vk.VkWriteDescriptorSet(
+                        dstSet=image_write.descriptor_set,
+                        dstBinding=image_write.binding,
+                        descriptorCount=image_write.count,
+                        descriptorType=image_write.descriptor_type,
+                        pImageInfo=image_infos,
+                    )
+                    for image_write, image_infos in zip(image_writes, image_write_infos)
+                ]
+            )
+
         vk.vkUpdateDescriptorSets(
             self.context.device,
-            descriptorWriteCount=len(descriptor_set_writes),
-            pDescriptorWrites=descriptor_set_writes,
+            descriptorWriteCount=len(descriptor_writes),
+            pDescriptorWrites=descriptor_writes,
             descriptorCopyCount=0,
             pDescriptorCopies=[],
         )

@@ -418,11 +418,17 @@ def test_texture(app, test_data):
         descriptor_pool=descriptor_pool, descriptor_set_layouts=[descriptor_set_layout]
     )[0]
     app.update_descriptor_sets(
-        [
-            kt.new_write_descriptor_image(
-                descriptor_set=test_texture_descriptor_set,
+        image_writes=[
+            kt.DescriptorImageWrites(
                 binding=0,
-                image_views_and_layouts=[(test_texture_view, ImageLayout.SHADER)],
+                image_infos=[
+                    kt.DescriptorImageInfo(
+                        image_view=test_texture_view, layout=kt.ImageLayout.SHADER
+                    )
+                ],
+                count=1,
+                descriptor_set=test_texture_descriptor_set,
+                descriptor_type=kt.DescriptorType.COMBINED_IMAGE_SAMPLER,
             )
         ]
     )
