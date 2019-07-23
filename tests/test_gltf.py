@@ -1,9 +1,9 @@
+import math
 import os
 import os.path
 import kt.gltf
 import glob
 import png
-import numpy as np
 import array
 import kt
 import kt.command_buffer_builder
@@ -13,6 +13,29 @@ import kt.graphics_app
 TEST_IMAGE_SIZE = 512
 TEST_IMAGE_SAMPLE_COUNT = 3
 GLTF_SAMPLE_MODELS_DIR = os.environ["GLTF_SAMPLE_MODELS_DIR"]
+
+
+def cross(lhs, rhs):
+    return (
+        lhs[1] * rhs[2] - lhs[2] * rhs[1],
+        lhs[2] * rhs[0] - lhs[0] * rhs[2],
+        lhs[0] * rhs[1] - lhs[1] * rhs[0],
+    )
+
+
+def dot(lhs, rhs):
+    return sum((x * y for x, y in zip(lhs, rhs)))
+
+
+def normalize(vector):
+    magnitude = math.sqrt(dot(vector, vector))
+    return tuple(_ / magnitude for _ in vector)
+
+
+def matrix_multiply(lhs, rhs):
+    rows = [lhs[row_index::4] for row_index in range(4)]
+    columns = [rhs[column_index * 4 :][:4] for column_index in range(4)]
+    return tuple(dot(row, column) for column in columns for row in rows)
 
 
 def test_bounds():
@@ -25,10 +48,13 @@ def test_bounds():
                 return file.read()
 
         model = kt.gltf.from_json(gltf_file, read_file_bytes)
-        transform_sequence = model.scenes[0].transform_sequence
+        scene = model.scenes[0]
+
+        transform_sequence = scene.transform_sequence
         node_transforms = [
             model.node_transforms[flattened_index]
             for flattened_index in transform_sequence.node_index_to_flattened_index
+            if flattened_index is not None
         ]
         for (
             source_index,
@@ -44,7 +70,7 @@ def test_bounds():
             ]
 
             node_transforms[destination_index] = tuple(
-                np.dot(columns[i], rows[j]) for i in range(3) for j in range(4)
+                dot(columns[i], rows[j]) for i in range(3) for j in range(4)
             )
 
 
@@ -153,8 +179,9 @@ def test_gltf() -> None:
             sample_count = 3
             width = 1024
             height = 1024
+            frame_uniform_byte_count = 4 * 4 * 4 + 4 * 4
             frame_uniform_buffer = app.new_buffer(
-                byte_count=4 * 4 * 4, usage=kt.BufferUsage.UNIFORM
+                byte_count=frame_uniform_byte_count, usage=kt.BufferUsage.UNIFORM
             )
             color_target_image = app.new_image(
                 format=kt.Format.R8G8B8A8_SRGB,
@@ -277,63 +304,59 @@ def test_gltf() -> None:
                         buffer_infos=[
                             kt.DescriptorBufferInfo(
                                 buffer=frame_uniform_buffer,
-                                byte_count=4 * 4 * 4,
+                                byte_count=frame_uniform_byte_count,
                                 byte_offset=0,
                             )
                         ],
-                        count=1,
                         descriptor_set=descriptor_sets[0],
                         descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
                     )
                 ]
             )
-            pipeline_layout = app.new_pipeline_layout()
-            pipeline = app.new_pipeline(
-                kt.new_graphics_pipeline_description(
-                    pipeline_layout=pipeline_layout,
-                    render_pass=render_pass,
-                    vertex_shader=shader_set.gltf_vert,
-                    fragment_shader=shader_set.gltf_frag,
-                    vertex_attributes=[
-                        kt.new_vertex_attribute(
-                            binding=0,
-                            location=0,
-                            pixel_format=kt.Format.R32G32B32_FLOAT,
-                        ),
-                        kt.new_vertex_attribute(
-                            binding=1,
-                            location=1,
-                            pixel_format=kt.Format.R32G32B32_FLOAT,
-                        ),
-                    ]
-                    + [
-                        kt.new_vertex_attribute(
-                            binding=2,
-                            location=2 + i,
-                            offset=i * 4 * 4,
-                            pixel_format=kt.Format.R32G32B32A32_FLOAT,
-                        )
-                        for i in range(3)
-                    ],
-                    vertex_bindings=[
-                        kt.new_vertex_binding(binding=0, stride=12),
-                        kt.new_vertex_binding(binding=1, stride=12),
-                        kt.new_vertex_binding(
-                            binding=2,
-                            stride=3 * 4 * 4,
-                            input_rate=kt.VertexInputRate.PER_INSTANCE,
-                        ),
-                    ],
-                    multisample_description=kt.new_multisample_description(
-                        sample_count=sample_count
-                    ),
-                    depth_description=kt.new_depth_description(
-                        test_enabled=True, write_enabled=True
-                    ),
-                    width=width * 2,
-                    height=height * 2,
-                )
+            pipeline_layout = app.new_pipeline_layout(
+                descriptor_set_layouts=[descriptor_set_layout]
             )
+            pipeline_description = kt.new_graphics_pipeline_description(
+                pipeline_layout=pipeline_layout,
+                render_pass=render_pass,
+                vertex_shader=shader_set.gltf_vert,
+                fragment_shader=shader_set.gltf_frag,
+                vertex_attributes=[
+                    kt.new_vertex_attribute(
+                        binding=0, location=0, pixel_format=kt.Format.R32G32B32_FLOAT
+                    ),
+                    kt.new_vertex_attribute(
+                        binding=1, location=1, pixel_format=kt.Format.R32G32B32_FLOAT
+                    ),
+                ]
+                + [
+                    kt.new_vertex_attribute(
+                        binding=2,
+                        location=2 + i,
+                        offset=i * 4 * 4,
+                        pixel_format=kt.Format.R32G32B32A32_FLOAT,
+                    )
+                    for i in range(3)
+                ],
+                vertex_bindings=[
+                    kt.new_vertex_binding(binding=0, stride=12),
+                    kt.new_vertex_binding(binding=1, stride=12),
+                    kt.new_vertex_binding(
+                        binding=2,
+                        stride=3 * 4 * 4,
+                        input_rate=kt.VertexInputRate.PER_INSTANCE,
+                    ),
+                ],
+                multisample_description=kt.new_multisample_description(
+                    sample_count=sample_count
+                ),
+                depth_description=kt.new_depth_description(
+                    test_enabled=True, write_enabled=True
+                ),
+                width=width * 2,
+                height=height * 2,
+            )
+            pipeline = app.new_pipeline(pipeline_description)
 
             command_pool = app.new_command_pool()
 
@@ -392,6 +415,45 @@ def test_gltf() -> None:
                     )
                     instance_memory = memory_set[instance_buffer]
 
+                    far = 1000
+                    near = 0.001
+                    camera_position = (0, 1, 2)
+                    view_direction = normalize(camera_position)
+                    right = normalize(cross((0, 1, 0), view_direction))
+                    up = cross(view_direction, right)
+
+                    projection = (
+                        1.5,
+                        0,
+                        0,
+                        0,
+                        0,
+                        -1.5,
+                        0,
+                        0,
+                        0,
+                        0,
+                        far / (near - far),
+                        (near * far) / (near - far),
+                        0,
+                        0,
+                        -1,
+                        0,
+                    )
+                    view = (
+                        *(*right, -dot(right, camera_position)),
+                        *(*up, -dot(up, camera_position)),
+                        *(*view_direction, -dot(view_direction, camera_position)),
+                        *(0, 0, 0, 1),
+                    )
+                    view_projection = matrix_multiply(view, projection)
+
+                    frame_uniform_memory[0:64] = array.array(
+                        "f", view_projection
+                    ).tobytes()
+                    frame_uniform_memory[64:76] = array.array(
+                        "f", camera_position
+                    ).tobytes()
                     command_buffer = app.allocate_command_buffer(command_pool)
                     with kt.command_buffer_builder.CommandBufferBuilder(
                         command_buffer=command_buffer,
@@ -410,6 +472,10 @@ def test_gltf() -> None:
                             byte_count=len(model.attributes_bytes),
                         )
 
+                        command_buffer_builder.bind_descriptor_sets(
+                            pipeline_layout=pipeline_layout,
+                            descriptor_sets=[descriptor_sets[0]],
+                        )
                         command_buffer_builder.bind_pipeline(pipeline)
 
                         command_buffer_builder.begin_render_pass(

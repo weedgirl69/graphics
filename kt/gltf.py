@@ -40,7 +40,7 @@ class TransformSequence:
 
 @dataclasses.dataclass(frozen=True)
 class Scene:
-    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]]
+    mesh_index_to_node_indices: typing.List[typing.List[int]]
     transform_sequence: TransformSequence
     mesh_index_to_base_instance_offset: typing.List[int]
 
@@ -118,20 +118,6 @@ def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]
             scale_z * m22,
             translation_z,
         )
-        return (
-            scale_x * m00,
-            scale_y * m01,
-            scale_z * m02,
-            translation_x,
-            scale_x * m10,
-            scale_y * m11,
-            scale_z * m12,
-            translation_y,
-            scale_x * m20,
-            scale_y * m21,
-            scale_z * m22,
-            translation_z,
-        )
 
     return [get_transform(node_json) for node_json in gltf_json["nodes"]]
 
@@ -141,10 +127,10 @@ def _get_node_index_to_parent_index(
     nodes_json: typing.List[typing.Dict],
     node_indices: typing.List[int],
     parent_index: typing.Optional[int] = None,
-    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]] = None,
-) -> typing.Dict[int, typing.Optional[int]]:
+    node_index_to_parent_index: typing.List[typing.Optional[int]] = None,
+) -> typing.List[typing.Optional[int]]:
     if node_index_to_parent_index is None:
-        node_index_to_parent_index = {}
+        node_index_to_parent_index = [None] * len(nodes_json)
 
     for node_index in node_indices:
         node_index_to_parent_index[node_index] = parent_index
@@ -162,10 +148,8 @@ def _get_mesh_index_to_node_indices(
     *,
     nodes_json: typing.List[typing.Dict],
     node_indices: typing.List[int],
-    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]] = None,
-) -> typing.Dict[int, typing.List[int]]:
-    if mesh_index_to_node_indices is None:
-        mesh_index_to_node_indices = collections.defaultdict(list)
+    mesh_index_to_node_indices: typing.List[typing.List[int]],
+) -> typing.List[typing.List[int]]:
 
     for node_index in node_indices:
         node_json = nodes_json[node_index]
@@ -183,10 +167,10 @@ def _get_mesh_index_to_node_indices(
 
 
 def _get_transform_sequence(
-    node_index_to_parent_index: typing.Dict[int, typing.Optional[int]],
-    mesh_index_to_node_indices: typing.Dict[int, typing.List[int]],
+    node_index_to_parent_index: typing.List[typing.Optional[int]],
+    mesh_index_to_node_indices: typing.List[typing.List[int]],
 ) -> TransformSequence:
-    node_index_to_flattened_index: typing.Dict[int, int] = {}
+    node_index_to_flattened_index = {}
     transform_source_index_to_destination_index = []
     current_instance_index = 0
 
@@ -206,14 +190,12 @@ def _get_transform_sequence(
                 )
             )
 
-    for node_indices in (
-        value for (key, value) in sorted(mesh_index_to_node_indices.items())
-    ):
+    for node_indices in mesh_index_to_node_indices:
         for node_index in node_indices:
             node_index_to_flattened_index[node_index] = current_instance_index
             current_instance_index += 1
 
-    for node_indices in mesh_index_to_node_indices.values():
+    for node_indices in mesh_index_to_node_indices:
         for node_index in node_indices:
             visit(node_index)
 
@@ -395,16 +377,16 @@ def from_json(file: typing.TextIO, uri_resolver):
             nodes_json=nodes_json, node_indices=scene_node_indices
         )
         mesh_index_to_node_indices = _get_mesh_index_to_node_indices(
-            nodes_json=nodes_json, node_indices=scene_node_indices
+            nodes_json=nodes_json,
+            node_indices=scene_node_indices,
+            mesh_index_to_node_indices=[list() for _ in meshes],
         )
         transform_sequence = _get_transform_sequence(
             node_index_to_parent_index, mesh_index_to_node_indices
         )
         mesh_index_to_base_instance_offset = [
             transform_sequence.node_index_to_flattened_index[node_indices[0]]
-            for node_indices in (
-                value for (key, value) in sorted(mesh_index_to_node_indices.items())
-            )
+            for node_indices in mesh_index_to_node_indices
         ]
 
         scenes.append(

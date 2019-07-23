@@ -358,9 +358,9 @@ class DescriptorImageInfo:
 class DescriptorBufferWrites:
     binding: int
     buffer_infos: typing.List[DescriptorBufferInfo]
-    count: int
     descriptor_set: DescriptorSet
     descriptor_type: DescriptorType
+    count: int = 1
 
 
 @dataclasses.dataclass
