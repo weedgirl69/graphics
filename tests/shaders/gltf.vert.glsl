@@ -12,7 +12,7 @@ layout(binding = 0) uniform FrameUniforms {
 };
 
 void main() {
-  vec3 position = vec4(in_position * .01, 1.0) * in_instance_transform;
+  vec3 position = vec4(in_position, 1.0) * in_instance_transform;
 
   out_normal = in_normal * mat3(in_instance_transform);
   out_view_direction = camera_position - position;

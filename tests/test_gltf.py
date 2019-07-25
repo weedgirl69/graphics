@@ -38,6 +38,58 @@ def matrix_multiply(lhs, rhs):
     return tuple(dot(row, column) for column in columns for row in rows)
 
 
+def get_bounds(*, node_transforms, transform_sequence, model, scene):
+    def transform_point(point, affine_transform):
+        return tuple(
+            dot(point, affine_transform[column_index * 4 :][:3])
+            + affine_transform[column_index * 4 + 3]
+            for column_index in range(3)
+        )
+
+    bounds_min = (math.inf, math.inf, math.inf)
+    bounds_max = (-math.inf, -math.inf, -math.inf)
+
+    transformed_bounds_points = [
+        transform_point(
+            tuple(
+                (primitive.bounds.min, primitive.bounds.max)[
+                    int(bool(selection & (1 << component)))
+                ][component]
+                for component in range(3)
+            ),
+            node_transforms[
+                transform_sequence.node_index_to_flattened_index[node_index]
+            ],
+        )
+        for mesh_index, node_indices in enumerate(scene.mesh_index_to_node_indices)
+        for node_index in node_indices
+        for primitive in model.meshes[mesh_index]
+        for selection in range(8)
+    ]
+    for bounds_point in transformed_bounds_points:
+        bounds_min = list(map(min, bounds_min, bounds_point))
+        bounds_max = list(map(max, bounds_max, bounds_point))
+    bounds_center = tuple(
+        0.5 * min_component + 0.5 * max_component
+        for min_component, max_component in zip(bounds_min, bounds_max)
+    )
+    radius = math.sqrt(
+        max(
+            dot(offset, offset)
+            for offset in (
+                tuple(
+                    bounds_component - center_component
+                    for bounds_component, center_component in zip(
+                        bounds_point, bounds_center
+                    )
+                )
+                for bounds_point in transformed_bounds_points
+            )
+        )
+    )
+    return bounds_center, radius
+
+
 def test_bounds():
     gltf_path = os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/Box/glTF/Box.gltf")
 
@@ -51,11 +103,13 @@ def test_bounds():
         scene = model.scenes[0]
 
         transform_sequence = scene.transform_sequence
+
         node_transforms = [
             model.node_transforms[flattened_index]
             for flattened_index in transform_sequence.node_index_to_flattened_index
             if flattened_index is not None
         ]
+
         for (
             source_index,
             destination_index,
@@ -72,6 +126,13 @@ def test_bounds():
             node_transforms[destination_index] = tuple(
                 dot(columns[i], rows[j]) for i in range(3) for j in range(4)
             )
+        bounds_center, radius = get_bounds(
+            node_transforms=node_transforms,
+            transform_sequence=transform_sequence,
+            model=model,
+            scene=scene,
+        )
+        print(bounds_center, radius)
 
 
 def _render_model(
@@ -80,69 +141,11 @@ def _render_model(
     command_buffer_builder: kt.command_buffer_builder.CommandBufferBuilder,
     index_buffer: kt.Buffer,
     instance_buffer: kt.Buffer,
-    instance_memory: kt.vk.ffi.buffer,
     model: kt.gltf.Model
 ):
     scene = model.scenes[0]
-    flattened_node_transforms = [None] * len(model.node_transforms)
-
-    for (
-        node_index,
-        flattened_index,
-    ) in scene.transform_sequence.node_index_to_flattened_index.items():
-        flattened_node_transforms[flattened_index] = model.node_transforms[node_index]
-    import pprint
-
-    pprint.pprint(scene.transform_sequence.node_index_to_flattened_index)
-    pprint.pprint(flattened_node_transforms)
-
-    for (
-        source_index,
-        destination_index,
-    ) in scene.transform_sequence.transform_source_index_to_destination_index:
-        print(source_index, destination_index)
-        source_transform = flattened_node_transforms[source_index]
-        destination_transform = flattened_node_transforms[destination_index]
-
-        columns = [source_transform[i : i + 4] for i in range(0, 12, 4)]
-        rows = [list(destination_transform[row_index::4]) for row_index in range(4)]
-
-        def dot(lhs, rhs):
-            x = sum(_a * _b for _a, _b in zip(lhs, rhs))
-            return x
-
-        combined_transform = [None] * 12
-        for x in range(3):
-            for y in range(4):
-                combined_transform[x * 4 + y] = (
-                    dot(columns[x][:3], rows[y]) + columns[x][-1]
-                )
-        flattened_node_transforms[destination_index] = combined_transform
-
-    scene_instance_count = sum(
-        len(node_indices) for node_indices in scene.mesh_index_to_node_indices.values()
-    )
-    transform_bytes = array.array(
-        "f",
-        (
-            component
-            for transform in flattened_node_transforms[:scene_instance_count]
-            for component in transform
-        ),
-    ).tobytes()
-    print(
-        array.array(
-            "f",
-            (
-                component
-                for transform in flattened_node_transforms[:scene_instance_count]
-                for component in transform
-            ),
-        )
-    )
-    instance_memory[: len(transform_bytes)] = transform_bytes
-    for mesh_index in range(len(scene.mesh_index_to_node_indices)):
-        instance_count = len(scene.mesh_index_to_node_indices[mesh_index])
+    for mesh_index, node_indices in enumerate(scene.mesh_index_to_node_indices):
+        instance_count = len(node_indices)
         if not instance_count:
             continue
 
@@ -157,6 +160,7 @@ def _render_model(
             )
 
             if primitive.index_data:
+
                 command_buffer_builder.bind_index_buffer(
                     buffer=index_buffer,
                     index_type={2: kt.IndexType.UINT16, 4: kt.IndexType.UINT32}[
@@ -361,8 +365,8 @@ def test_gltf() -> None:
             command_pool = app.new_command_pool()
 
             for gltf_path in glob.glob(
-                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
-            ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf")):
+                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/adfwe*/glTF-Embedded/*.gltf")
+            ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/2*/glTF/*.gltf")):
                 print(gltf_path)
                 with open(gltf_path) as gltf_file:
 
@@ -373,6 +377,7 @@ def test_gltf() -> None:
                             return file.read()
 
                     model = kt.gltf.from_json(gltf_file, read_file_bytes)
+                    scene = model.scenes[0]
                     upload_buffer_byte_count = len(model.indices_bytes) + len(
                         model.attributes_bytes
                     )
@@ -392,7 +397,8 @@ def test_gltf() -> None:
                     instance_capacity = max(
                         sum(
                             len(node_indices)
-                            for node_indices in scene.mesh_index_to_node_indices.values()
+                            for node_indices in scene.mesh_index_to_node_indices
+                            if node_indices
                         )
                         for scene in model.scenes
                     )
@@ -415,10 +421,74 @@ def test_gltf() -> None:
                     )
                     instance_memory = memory_set[instance_buffer]
 
-                    far = 1000
-                    near = 0.001
-                    camera_position = (0, 1, 2)
-                    view_direction = normalize(camera_position)
+                    flattened_node_transforms = [None] * len(model.node_transforms)
+
+                    for (
+                        node_index,
+                        flattened_index,
+                    ) in scene.transform_sequence.node_index_to_flattened_index.items():
+                        flattened_node_transforms[
+                            flattened_index
+                        ] = model.node_transforms[node_index]
+
+                    for (
+                        source_index,
+                        destination_index,
+                    ) in (
+                        scene.transform_sequence.transform_source_index_to_destination_index
+                    ):
+                        source_transform = flattened_node_transforms[source_index]
+                        destination_transform = flattened_node_transforms[
+                            destination_index
+                        ]
+
+                        columns = [source_transform[i : i + 4] for i in range(0, 12, 4)]
+                        rows = [
+                            list(destination_transform[row_index::4])
+                            for row_index in range(4)
+                        ]
+
+                        combined_transform = [None] * 12
+                        for x in range(3):
+                            for y in range(4):
+                                combined_transform[x * 4 + y] = (
+                                    dot(columns[x][:3], rows[y]) + columns[x][-1]
+                                )
+                        flattened_node_transforms[
+                            destination_index
+                        ] = combined_transform
+
+                    bounds_center, radius = get_bounds(
+                        node_transforms=flattened_node_transforms,
+                        transform_sequence=scene.transform_sequence,
+                        model=model,
+                        scene=scene,
+                    )
+
+                    scene_instance_count = sum(
+                        len(node_indices)
+                        for node_indices in scene.mesh_index_to_node_indices
+                    )
+                    transform_bytes = array.array(
+                        "f",
+                        (
+                            component
+                            for transform in flattened_node_transforms[
+                                :scene_instance_count
+                            ]
+                            for component in transform
+                        ),
+                    ).tobytes()
+                    instance_memory[: len(transform_bytes)] = transform_bytes
+
+                    far = radius * 3.01
+                    near = radius * 0.99
+                    camera_position = (
+                        bounds_center[0],
+                        bounds_center[1],
+                        bounds_center[2] + radius * 2,
+                    )
+                    view_direction = (0, 0, 1)
                     right = normalize(cross((0, 1, 0), view_direction))
                     up = cross(view_direction, right)
 
@@ -494,7 +564,6 @@ def test_gltf() -> None:
                             command_buffer_builder=command_buffer_builder,
                             index_buffer=index_buffer,
                             instance_buffer=instance_buffer,
-                            instance_memory=instance_memory,
                             model=model,
                         )
 

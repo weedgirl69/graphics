@@ -106,15 +106,15 @@ def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]
         m22 = 1 - 2 * (xx + yy)
         return (
             scale_x * m00,
-            scale_y * m10,
-            scale_z * m20,
+            scale_y * m01,
+            scale_z * m02,
             translation_x,
-            scale_x * m01,
+            scale_x * m10,
             scale_y * m11,
-            scale_z * m21,
+            scale_z * m12,
             translation_y,
-            scale_x * m02,
-            scale_y * m12,
+            scale_x * m20,
+            scale_y * m21,
             scale_z * m22,
             translation_z,
         )
@@ -387,6 +387,7 @@ def from_json(file: typing.TextIO, uri_resolver):
         mesh_index_to_base_instance_offset = [
             transform_sequence.node_index_to_flattened_index[node_indices[0]]
             for node_indices in mesh_index_to_node_indices
+            if node_indices
         ]
 
         scenes.append(
