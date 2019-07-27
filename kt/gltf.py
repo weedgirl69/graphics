@@ -255,8 +255,13 @@ def _get_accessors(
                 for i in range(count):
                     accessor_bytes[
                         i * natural_stride : (i + 1) * natural_stride
-                    ] = buffer_bytes[i * byte_stride : i * byte_stride + natural_stride]
-                accessor_data.append(accessor_bytes)
+                    ] = buffer_bytes[
+                        byte_offset
+                        + i * byte_stride : byte_offset
+                        + i * byte_stride
+                        + natural_stride
+                    ]
+                accessor_data.append(bytes(accessor_bytes))
         else:
             accessor_data.append(bytes(count))
 
@@ -386,8 +391,9 @@ def from_json(file: typing.TextIO, uri_resolver):
         )
         mesh_index_to_base_instance_offset = [
             transform_sequence.node_index_to_flattened_index[node_indices[0]]
-            for node_indices in mesh_index_to_node_indices
             if node_indices
+            else None
+            for node_indices in mesh_index_to_node_indices
         ]
 
         scenes.append(

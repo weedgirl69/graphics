@@ -1,3 +1,4 @@
+import dataclasses
 import math
 import os
 import os.path
@@ -126,6 +127,7 @@ def test_bounds():
             node_transforms[destination_index] = tuple(
                 dot(columns[i], rows[j]) for i in range(3) for j in range(4)
             )
+
         bounds_center, radius = get_bounds(
             node_transforms=node_transforms,
             transform_sequence=transform_sequence,
@@ -177,104 +179,142 @@ def _render_model(
                 )
 
 
+@dataclasses.dataclass
+class GltfRenderResources:
+    color_target_image: kt.Image
+    depth_target_image: kt.Image
+    downsampled_target_image: kt.Image
+    frame_uniform_buffer: kt.Buffer
+    frame_uniform_byte_count: int
+    render_pass: kt.RenderPass
+    resolve_target_image: kt.Image
+
+
+def create_gltf_render_resources(
+    app: kt.graphics_app.GraphicsApp, width: int, height: int, sample_count: int
+) -> GltfRenderResources:
+    frame_uniform_byte_count = 4 * 4 * 4 + 4 * 4
+    frame_uniform_buffer = app.new_buffer(
+        byte_count=frame_uniform_byte_count, usage=kt.BufferUsage.UNIFORM
+    )
+    color_target_image = app.new_image(
+        format=kt.Format.R8G8B8A8_SRGB,
+        usage=kt.ImageUsage.COLOR_ATTACHMENT,
+        width=width * 2,
+        height=height * 2,
+        sample_count=sample_count,
+    )
+    depth_target_image = app.new_image(
+        format=kt.Format.D24X8,
+        usage=kt.ImageUsage.DEPTH_ATTACHMENT,
+        width=width * 2,
+        height=height * 2,
+        sample_count=sample_count,
+    )
+    resolve_target_image = app.new_image(
+        format=kt.Format.R8G8B8A8_SRGB,
+        usage=kt.ImageUsage.COLOR_ATTACHMENT | kt.ImageUsage.TRANSFER_SOURCE,
+        width=width * 2,
+        height=height * 2,
+    )
+    downsampled_target_image = app.new_image(
+        format=kt.Format.R8G8B8A8_SRGB,
+        usage=kt.ImageUsage.TRANSFER_DESTINATION | kt.ImageUsage.TRANSFER_SOURCE,
+        width=width,
+        height=height,
+    )
+
+    render_pass = app.new_render_pass(
+        attachments=[
+            kt.new_attachment_description(
+                pixel_format=kt.Format.R8G8B8A8_SRGB,
+                load_op=kt.LoadOp.CLEAR,
+                store_op=kt.StoreOp.DISCARD,
+                # final_layout=ImageLayout.TRANSFER_SOURCE,
+                sample_count=TEST_IMAGE_SAMPLE_COUNT,
+            ),
+            kt.new_attachment_description(
+                pixel_format=kt.Format.D24X8,
+                load_op=kt.LoadOp.CLEAR,
+                store_op=kt.StoreOp.DISCARD,
+                sample_count=TEST_IMAGE_SAMPLE_COUNT,
+            ),
+            kt.new_attachment_description(
+                pixel_format=kt.Format.R8G8B8A8_SRGB,
+                load_op=kt.LoadOp.DONT_CARE,
+                store_op=kt.StoreOp.STORE,
+                final_layout=kt.ImageLayout.TRANSFER_SOURCE,
+            ),
+        ],
+        subpass_descriptions=[
+            kt.new_subpass_description(
+                color_attachments=[(0, kt.ImageLayout.COLOR)],
+                resolve_attachments=[(2, kt.ImageLayout.TRANSFER_DESTINATION)],
+                depth_attachment=1,
+            )
+        ],
+    )
+
+    return GltfRenderResources(
+        color_target_image=color_target_image,
+        depth_target_image=depth_target_image,
+        downsampled_target_image=downsampled_target_image,
+        frame_uniform_buffer=frame_uniform_buffer,
+        frame_uniform_byte_count=frame_uniform_byte_count,
+        render_pass=render_pass,
+        resolve_target_image=resolve_target_image,
+    )
+
+
 def test_gltf() -> None:
     try:
         with kt.graphics_app.run_graphics() as app:
             sample_count = 3
             width = 1024
             height = 1024
-            frame_uniform_byte_count = 4 * 4 * 4 + 4 * 4
-            frame_uniform_buffer = app.new_buffer(
-                byte_count=frame_uniform_byte_count, usage=kt.BufferUsage.UNIFORM
+
+            gltf_render_resources = create_gltf_render_resources(
+                app, width, height, sample_count
             )
-            color_target_image = app.new_image(
-                format=kt.Format.R8G8B8A8_SRGB,
-                usage=kt.ImageUsage.COLOR_ATTACHMENT,
-                width=width * 2,
-                height=height * 2,
-                sample_count=sample_count,
-            )
-            depth_target_image = app.new_image(
-                format=kt.Format.D24X8,
-                usage=kt.ImageUsage.DEPTH_ATTACHMENT,
-                width=width * 2,
-                height=height * 2,
-                sample_count=sample_count,
-            )
-            resolve_target_image = app.new_image(
-                format=kt.Format.R8G8B8A8_SRGB,
-                usage=kt.ImageUsage.COLOR_ATTACHMENT | kt.ImageUsage.TRANSFER_SOURCE,
-                width=width * 2,
-                height=height * 2,
-            )
-            downsampled_target_image = app.new_image(
-                format=kt.Format.R8G8B8A8_SRGB,
-                usage=kt.ImageUsage.TRANSFER_DESTINATION
-                | kt.ImageUsage.TRANSFER_SOURCE,
-                width=width,
-                height=height,
-            )
+
             readback_buffer = app.new_buffer(
                 byte_count=width * height * 4, usage=kt.BufferUsage.TRANSFER_DESTINATION
             )
 
             mapped_memory = app.new_memory_set(
-                device_optimal=[resolve_target_image, downsampled_target_image],
+                device_optimal=[
+                    gltf_render_resources.resolve_target_image,
+                    gltf_render_resources.downsampled_target_image,
+                ],
                 downloadable=[readback_buffer],
-                lazily_allocated=[color_target_image, depth_target_image],
-                uploadable=[frame_uniform_buffer],
+                lazily_allocated=[
+                    gltf_render_resources.color_target_image,
+                    gltf_render_resources.depth_target_image,
+                ],
+                uploadable=[gltf_render_resources.frame_uniform_buffer],
             )
             readback_buffer_memory = mapped_memory[readback_buffer]
-            frame_uniform_memory = mapped_memory[frame_uniform_buffer]
-
-            render_pass = app.new_render_pass(
-                attachments=[
-                    kt.new_attachment_description(
-                        pixel_format=kt.Format.R8G8B8A8_SRGB,
-                        load_op=kt.LoadOp.CLEAR,
-                        store_op=kt.StoreOp.DISCARD,
-                        # final_layout=ImageLayout.TRANSFER_SOURCE,
-                        sample_count=TEST_IMAGE_SAMPLE_COUNT,
-                    ),
-                    kt.new_attachment_description(
-                        pixel_format=kt.Format.D24X8,
-                        load_op=kt.LoadOp.CLEAR,
-                        store_op=kt.StoreOp.DISCARD,
-                        sample_count=TEST_IMAGE_SAMPLE_COUNT,
-                    ),
-                    kt.new_attachment_description(
-                        pixel_format=kt.Format.R8G8B8A8_SRGB,
-                        load_op=kt.LoadOp.DONT_CARE,
-                        store_op=kt.StoreOp.STORE,
-                        final_layout=kt.ImageLayout.TRANSFER_SOURCE,
-                    ),
-                ],
-                subpass_descriptions=[
-                    kt.new_subpass_description(
-                        color_attachments=[(0, kt.ImageLayout.COLOR)],
-                        resolve_attachments=[(2, kt.ImageLayout.TRANSFER_DESTINATION)],
-                        depth_attachment=1,
-                    )
-                ],
-            )
+            frame_uniform_memory = mapped_memory[
+                gltf_render_resources.frame_uniform_buffer
+            ]
 
             color_target_view = app.new_image_view(
-                image=color_target_image,
+                image=gltf_render_resources.color_target_image,
                 format=kt.Format.R8G8B8A8_SRGB,
                 aspect=kt.ImageAspect.COLOR,
             )
             depth_target_view = app.new_image_view(
-                image=depth_target_image,
+                image=gltf_render_resources.depth_target_image,
                 format=kt.Format.D24X8,
                 aspect=kt.ImageAspect.DEPTH,
             )
             resolve_target_view = app.new_image_view(
-                image=resolve_target_image,
+                image=gltf_render_resources.resolve_target_image,
                 format=kt.Format.R8G8B8A8_SRGB,
                 aspect=kt.ImageAspect.COLOR,
             )
             framebuffer = app.new_framebuffer(
-                render_pass=render_pass,
+                render_pass=gltf_render_resources.render_pass,
                 attachments=[color_target_view, depth_target_view, resolve_target_view],
                 width=width * 2,
                 height=height * 2,
@@ -307,8 +347,8 @@ def test_gltf() -> None:
                         binding=0,
                         buffer_infos=[
                             kt.DescriptorBufferInfo(
-                                buffer=frame_uniform_buffer,
-                                byte_count=frame_uniform_byte_count,
+                                buffer=gltf_render_resources.frame_uniform_buffer,
+                                byte_count=gltf_render_resources.frame_uniform_byte_count,
                                 byte_offset=0,
                             )
                         ],
@@ -322,7 +362,7 @@ def test_gltf() -> None:
             )
             pipeline_description = kt.new_graphics_pipeline_description(
                 pipeline_layout=pipeline_layout,
-                render_pass=render_pass,
+                render_pass=gltf_render_resources.render_pass,
                 vertex_shader=shader_set.gltf_vert,
                 fragment_shader=shader_set.gltf_frag,
                 vertex_attributes=[
@@ -365,8 +405,12 @@ def test_gltf() -> None:
             command_pool = app.new_command_pool()
 
             for gltf_path in glob.glob(
-                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/adfwe*/glTF-Embedded/*.gltf")
-            ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/2*/glTF/*.gltf")):
+                os.path.join(
+                    GLTF_SAMPLE_MODELS_DIR, "2.0/*Interleaved/glTF-Embedded/*.gltf"
+                )
+            ) + glob.glob(
+                os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*Interleaved/glTF/*.gltf")
+            ):
                 print(gltf_path)
                 with open(gltf_path) as gltf_file:
 
@@ -444,19 +488,13 @@ def test_gltf() -> None:
 
                         columns = [source_transform[i : i + 4] for i in range(0, 12, 4)]
                         rows = [
-                            list(destination_transform[row_index::4])
+                            list(destination_transform[row_index::4]) + [row_index == 3]
                             for row_index in range(4)
                         ]
 
-                        combined_transform = [None] * 12
-                        for x in range(3):
-                            for y in range(4):
-                                combined_transform[x * 4 + y] = (
-                                    dot(columns[x][:3], rows[y]) + columns[x][-1]
-                                )
-                        flattened_node_transforms[
-                            destination_index
-                        ] = combined_transform
+                        flattened_node_transforms[destination_index] = tuple(
+                            dot(columns[i], rows[j]) for i in range(3) for j in range(4)
+                        )
 
                     bounds_center, radius = get_bounds(
                         node_transforms=flattened_node_transforms,
@@ -549,7 +587,7 @@ def test_gltf() -> None:
                         command_buffer_builder.bind_pipeline(pipeline)
 
                         command_buffer_builder.begin_render_pass(
-                            render_pass=render_pass,
+                            render_pass=gltf_render_resources.render_pass,
                             framebuffer=framebuffer,
                             clear_values=[
                                 kt.new_clear_value(color=(1.0, 0.0, 1.0, 1.0)),
@@ -570,28 +608,28 @@ def test_gltf() -> None:
                         command_buffer_builder.end_render_pass()
 
                         command_buffer_builder.pipeline_barrier(
-                            image=downsampled_target_image,
+                            image=gltf_render_resources.downsampled_target_image,
                             new_layout=kt.ImageLayout.TRANSFER_DESTINATION,
                         )
 
                         command_buffer_builder.blit_image(
-                            source_image=resolve_target_image,
+                            source_image=gltf_render_resources.resolve_target_image,
                             source_width=width * 2,
                             source_height=height * 2,
-                            destination_image=downsampled_target_image,
+                            destination_image=gltf_render_resources.downsampled_target_image,
                             destination_width=width,
                             destination_height=height,
                         )
 
                         command_buffer_builder.pipeline_barrier(
-                            image=downsampled_target_image,
+                            image=gltf_render_resources.downsampled_target_image,
                             mip_count=1,
                             old_layout=kt.ImageLayout.TRANSFER_DESTINATION,
                             new_layout=kt.ImageLayout.TRANSFER_SOURCE,
                         )
 
                         command_buffer_builder.copy_image_to_buffer(
-                            image=downsampled_target_image,
+                            image=gltf_render_resources.downsampled_target_image,
                             buffer=readback_buffer,
                             width=width,
                             height=height,
