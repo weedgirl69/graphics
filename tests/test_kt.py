@@ -168,20 +168,20 @@ def test_metallic_roughness(app, test_data):
             },
         )
         render_pass = app.new_render_pass(
-            attachments=[
-                kt.new_attachment_description(
+            attachment_descriptions=[
+                kt.AttachmentDescription(
                     pixel_format=Format.R8G8B8A8_SRGB,
                     load_op=LoadOp.CLEAR,
                     store_op=StoreOp.DISCARD,
                     sample_count=sample_count,
                 ),
-                kt.new_attachment_description(
+                kt.AttachmentDescription(
                     pixel_format=Format.D24X8,
                     load_op=LoadOp.CLEAR,
                     store_op=StoreOp.DISCARD,
                     sample_count=sample_count,
                 ),
-                kt.new_attachment_description(
+                kt.AttachmentDescription(
                     pixel_format=Format.R8G8B8A8_SRGB,
                     load_op=LoadOp.DONT_CARE,
                     store_op=StoreOp.STORE,
@@ -189,10 +189,10 @@ def test_metallic_roughness(app, test_data):
                 ),
             ],
             subpass_descriptions=[
-                kt.new_subpass_description(
+                kt.SubpassDescription(
                     color_attachments=[(0, ImageLayout.COLOR)],
                     resolve_attachments=[(2, ImageLayout.TRANSFER_DESTINATION)],
-                    depth_attachment=1,
+                    depth_attachment_index=1,
                 )
             ],
         )
@@ -220,34 +220,35 @@ def test_metallic_roughness(app, test_data):
             "tests/position_normal.vert.glsl", "tests/metallic_roughness.frag.glsl"
         )
         pipeline_layout = app.new_pipeline_layout()
-        pipeline = app.new_pipeline(
-            kt.new_graphics_pipeline_description(
-                pipeline_layout=pipeline_layout,
-                render_pass=render_pass,
-                vertex_shader=shader_set.position_normal_vert,
-                fragment_shader=shader_set.metallic_roughness_frag,
-                vertex_attributes=[
-                    kt.new_vertex_attribute(
-                        location=0, binding=0, pixel_format=Format.R32G32B32_FLOAT
+
+        pipeline = app.new_graphics_pipelines(
+            [
+                kt.GraphicsPipelineDescription(
+                    pipeline_layout=pipeline_layout,
+                    render_pass=render_pass,
+                    vertex_shader=shader_set.position_normal_vert,
+                    fragment_shader=shader_set.metallic_roughness_frag,
+                    vertex_attributes=[
+                        kt.VertexAttribute(
+                            binding=0, pixel_format=Format.R32G32B32_FLOAT
+                        ),
+                        kt.VertexAttribute(
+                            binding=1, pixel_format=Format.R32G32B32_FLOAT
+                        ),
+                    ],
+                    vertex_bindings=[
+                        kt.VertexBinding(stride=12),
+                        kt.VertexBinding(stride=12),
+                    ],
+                    sample_count=sample_count,
+                    depth_description=kt.DepthDescription(
+                        test_enabled=True, write_enabled=True
                     ),
-                    kt.new_vertex_attribute(
-                        location=1, binding=1, pixel_format=Format.R32G32B32_FLOAT
-                    ),
-                ],
-                vertex_bindings=[
-                    kt.new_vertex_binding(binding=0, stride=12),
-                    kt.new_vertex_binding(binding=1, stride=12),
-                ],
-                multisample_description=kt.new_multisample_description(
-                    sample_count=sample_count
-                ),
-                depth_description=kt.new_depth_description(
-                    test_enabled=True, write_enabled=True
-                ),
-                width=test_data.width * 2,
-                height=test_data.height * 2,
-            )
-        )
+                    width=test_data.width * 2,
+                    height=test_data.height * 2,
+                )
+            ]
+        )[0]
 
         with CommandBufferBuilder(
             command_buffer=test_data.command_buffer,
@@ -402,8 +403,7 @@ def test_texture(app, test_data):
     sampler = app.new_sampler(min_filter=Filter.LINEAR, mag_filter=Filter.LINEAR)
     descriptor_set_layout = app.new_descriptor_set_layout(
         [
-            kt.new_descriptor_layout_binding(
-                binding=0,
+            kt.DescriptorSetLayoutBinding(
                 stage=kt.ShaderStage.FRAGMENT,
                 descriptor_type=kt.DescriptorType.COMBINED_IMAGE_SAMPLER,
                 immutable_samplers=[sampler],
@@ -434,8 +434,8 @@ def test_texture(app, test_data):
     )
 
     render_pass = app.new_render_pass(
-        attachments=[
-            kt.new_attachment_description(
+        attachment_descriptions=[
+            kt.AttachmentDescription(
                 pixel_format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
@@ -443,7 +443,7 @@ def test_texture(app, test_data):
             )
         ],
         subpass_descriptions=[
-            kt.new_subpass_description(color_attachments=[(0, ImageLayout.COLOR)])
+            kt.SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
         ],
     )
     color_target_view = app.new_image_view(
@@ -460,27 +460,27 @@ def test_texture(app, test_data):
     shader_set = app.new_shader_set(
         "tests/texture_test.vert.glsl", "tests/texture_test.frag.glsl"
     )
-    pipeline_description = kt.new_graphics_pipeline_description(
-        pipeline_layout=pipeline_layout,
-        render_pass=render_pass,
-        vertex_shader=shader_set.texture_test_vert,
-        fragment_shader=shader_set.texture_test_frag,
-        vertex_attributes=[
-            kt.new_vertex_attribute(
-                location=0, binding=0, pixel_format=Format.R32G32_FLOAT
-            ),
-            kt.new_vertex_attribute(
-                location=1, binding=1, pixel_format=Format.R32G32_FLOAT
-            ),
-        ],
-        vertex_bindings=[
-            kt.new_vertex_binding(binding=0, stride=8),
-            kt.new_vertex_binding(binding=1, stride=8),
-        ],
-        width=test_data.width,
-        height=test_data.height,
-    )
-    pipeline = app.new_pipeline(pipeline_description)
+    pipeline = app.new_graphics_pipelines(
+        [
+            kt.GraphicsPipelineDescription(
+                pipeline_layout=pipeline_layout,
+                render_pass=render_pass,
+                vertex_shader=shader_set.texture_test_vert,
+                fragment_shader=shader_set.texture_test_frag,
+                sample_count=0,
+                vertex_attributes=[
+                    kt.VertexAttribute(binding=0, pixel_format=Format.R32G32_FLOAT),
+                    kt.VertexAttribute(binding=1, pixel_format=Format.R32G32_FLOAT),
+                ],
+                vertex_bindings=[
+                    kt.VertexBinding(stride=8),
+                    kt.VertexBinding(stride=8),
+                ],
+                width=test_data.width,
+                height=test_data.height,
+            )
+        ]
+    )[0]
 
     with CommandBufferBuilder(
         command_buffer=test_data.command_buffer,
@@ -584,22 +584,23 @@ def cube_app_test(method):
                 byte_count=len(CUBE_MESH.normals.tobytes()), usage=BufferUsage.VERTEX
             ),
             "render_pass": app.new_render_pass(
-                attachments=[
-                    kt.new_attachment_description(
+                attachment_descriptions=[
+                    kt.AttachmentDescription(
                         pixel_format=Format.R8G8B8A8_SRGB,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.STORE,
                         final_layout=ImageLayout.TRANSFER_SOURCE,
                     ),
-                    kt.new_attachment_description(
+                    kt.AttachmentDescription(
                         pixel_format=Format.D24X8,
                         load_op=LoadOp.CLEAR,
                         store_op=StoreOp.DISCARD,
                     ),
                 ],
                 subpass_descriptions=[
-                    kt.new_subpass_description(
-                        color_attachments=[(0, ImageLayout.COLOR)], depth_attachment=1
+                    kt.SubpassDescription(
+                        color_attachments=[(0, ImageLayout.COLOR)],
+                        depth_attachment_index=1,
                     )
                 ],
             ),
@@ -704,43 +705,39 @@ def test_instanced_cubes(app, test_data, cube_resources):
 
     float3_format = Format.R32G32B32_FLOAT
     float4_format = Format.R32G32B32A32_FLOAT
-    pipeline = app.new_pipeline(
-        kt.new_graphics_pipeline_description(
-            pipeline_layout=app.new_pipeline_layout(),
-            render_pass=cube_resources["render_pass"],
-            vertex_shader=shader_set.instanced_cube_vert,
-            fragment_shader=shader_set.cube_frag,
-            vertex_attributes=[
-                kt.new_vertex_attribute(
-                    location=0, binding=0, pixel_format=float3_format
+    pipeline = app.new_graphics_pipelines(
+        [
+            kt.GraphicsPipelineDescription(
+                pipeline_layout=app.new_pipeline_layout(),
+                render_pass=cube_resources["render_pass"],
+                vertex_shader=shader_set.instanced_cube_vert,
+                fragment_shader=shader_set.cube_frag,
+                vertex_attributes=[
+                    kt.VertexAttribute(binding=0, pixel_format=float3_format),
+                    kt.VertexAttribute(binding=1, pixel_format=float3_format),
+                    kt.VertexAttribute(binding=2, pixel_format=float4_format, offset=0),
+                    kt.VertexAttribute(
+                        binding=2, pixel_format=float4_format, offset=16
+                    ),
+                    kt.VertexAttribute(
+                        binding=2, pixel_format=float4_format, offset=32
+                    ),
+                ],
+                vertex_bindings=[
+                    kt.VertexBinding(stride=12),
+                    kt.VertexBinding(stride=12),
+                    kt.VertexBinding(
+                        stride=48, input_rate=VertexInputRate.PER_INSTANCE
+                    ),
+                ],
+                depth_description=kt.DepthDescription(
+                    test_enabled=True, write_enabled=True
                 ),
-                kt.new_vertex_attribute(
-                    location=1, binding=1, pixel_format=float3_format
-                ),
-                kt.new_vertex_attribute(
-                    location=2, binding=2, pixel_format=float4_format, offset=0
-                ),
-                kt.new_vertex_attribute(
-                    location=3, binding=2, pixel_format=float4_format, offset=16
-                ),
-                kt.new_vertex_attribute(
-                    location=4, binding=2, pixel_format=float4_format, offset=32
-                ),
-            ],
-            vertex_bindings=[
-                kt.new_vertex_binding(binding=0, stride=12),
-                kt.new_vertex_binding(binding=1, stride=12),
-                kt.new_vertex_binding(
-                    binding=2, stride=48, input_rate=VertexInputRate.PER_INSTANCE
-                ),
-            ],
-            depth_description=kt.new_depth_description(
-                test_enabled=True, write_enabled=True
-            ),
-            width=test_data.width,
-            height=test_data.height,
-        )
-    )
+                width=test_data.width,
+                height=test_data.height,
+            )
+        ]
+    )[0]
 
     with CommandBufferBuilder(
         command_buffer=test_data.command_buffer,
@@ -787,31 +784,29 @@ def test_instanced_cubes(app, test_data, cube_resources):
 def test_cube(app, test_data, cube_resources):
     shader_set = app.new_shader_set("tests/cube.vert.glsl", "tests/cube.frag.glsl")
 
-    pipeline = app.new_pipeline(
-        kt.new_graphics_pipeline_description(
-            pipeline_layout=app.new_pipeline_layout(),
-            render_pass=cube_resources["render_pass"],
-            vertex_shader=shader_set.cube_vert,
-            fragment_shader=shader_set.cube_frag,
-            vertex_attributes=[
-                kt.new_vertex_attribute(
-                    location=0, binding=0, pixel_format=Format.R32G32B32_FLOAT
+    pipeline = app.new_graphics_pipelines(
+        [
+            kt.GraphicsPipelineDescription(
+                pipeline_layout=app.new_pipeline_layout(),
+                render_pass=cube_resources["render_pass"],
+                vertex_shader=shader_set.cube_vert,
+                fragment_shader=shader_set.cube_frag,
+                vertex_attributes=[
+                    kt.VertexAttribute(binding=0, pixel_format=Format.R32G32B32_FLOAT),
+                    kt.VertexAttribute(binding=1, pixel_format=Format.R32G32B32_FLOAT),
+                ],
+                vertex_bindings=[
+                    kt.VertexBinding(stride=12),
+                    kt.VertexBinding(stride=12),
+                ],
+                width=test_data.width,
+                height=test_data.height,
+                depth_description=kt.DepthDescription(
+                    test_enabled=False, write_enabled=False
                 ),
-                kt.new_vertex_attribute(
-                    location=1, binding=1, pixel_format=Format.R32G32B32_FLOAT
-                ),
-            ],
-            vertex_bindings=[
-                kt.new_vertex_binding(binding=0, stride=12),
-                kt.new_vertex_binding(binding=1, stride=12),
-            ],
-            width=test_data.width,
-            height=test_data.height,
-            depth_description=kt.new_depth_description(
-                test_enabled=False, write_enabled=False
-            ),
-        )
-    )
+            )
+        ]
+    )[0]
 
     with CommandBufferBuilder(
         command_buffer=test_data.command_buffer,
@@ -858,8 +853,8 @@ def test_triangle(app, test_data):
     )
     app.new_memory_set(device_optimal=[image])
     render_pass = app.new_render_pass(
-        attachments=[
-            kt.new_attachment_description(
+        attachment_descriptions=[
+            kt.AttachmentDescription(
                 pixel_format=Format.R8G8B8A8_SRGB,
                 load_op=LoadOp.CLEAR,
                 store_op=StoreOp.STORE,
@@ -867,7 +862,7 @@ def test_triangle(app, test_data):
             )
         ],
         subpass_descriptions=[
-            kt.new_subpass_description(color_attachments=[(0, ImageLayout.COLOR)])
+            kt.SubpassDescription(color_attachments=[(0, ImageLayout.COLOR)])
         ],
     )
     image_view = app.new_image_view(image=image, format=Format.R8G8B8A8_SRGB)
@@ -882,15 +877,18 @@ def test_triangle(app, test_data):
     shader_set = app.new_shader_set(
         "tests/triangle.vert.glsl", "tests/triangle.frag.glsl"
     )
-    pipeline_description = kt.new_graphics_pipeline_description(
-        pipeline_layout=pipeline_layout,
-        render_pass=render_pass,
-        vertex_shader=shader_set.triangle_vert,
-        fragment_shader=shader_set.triangle_frag,
-        width=test_data.width,
-        height=test_data.height,
-    )
-    pipeline = app.new_pipeline(pipeline_description)
+    pipeline = app.new_graphics_pipelines(
+        [
+            kt.GraphicsPipelineDescription(
+                pipeline_layout=pipeline_layout,
+                render_pass=render_pass,
+                vertex_shader=shader_set.triangle_vert,
+                fragment_shader=shader_set.triangle_frag,
+                width=test_data.width,
+                height=test_data.height,
+            )
+        ]
+    )[0]
 
     with CommandBufferBuilder(
         command_buffer=test_data.command_buffer,

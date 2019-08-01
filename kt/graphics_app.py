@@ -75,14 +75,15 @@ class VulkanContext:
     resources: List[VulkanResource]
 
 
-def _add_to_resources(
-    method: Callable[..., VulkanResourceType]
-) -> Callable[..., VulkanResourceType]:
+def _add_to_resources(method: Callable) -> Callable:
     @functools.wraps(method)
     def wrapper(self: Any, *args: Any, **kwargs: Any) -> VulkanResourceType:
-        resource = method(self, *args, **kwargs)
-        self.context.resources.append(resource)
-        return resource
+        result = method(self, *args, **kwargs)
+        if isinstance(result, list):
+            self.context.resources.extend(result)
+        else:
+            self.context.resources.append(result)
+        return result
 
     return wrapper
 
@@ -173,7 +174,18 @@ class GraphicsApp:
         return kt.DescriptorSetLayout(
             vk.vkCreateDescriptorSetLayout(
                 self.context.device,
-                vk.VkDescriptorSetLayoutCreateInfo(pBindings=bindings),
+                vk.VkDescriptorSetLayoutCreateInfo(
+                    pBindings=[
+                        vk.VkDescriptorSetLayoutBinding(
+                            binding=binding_index,
+                            descriptorType=binding.descriptor_type,
+                            descriptorCount=binding.count,
+                            stageFlags=binding.stage,
+                            pImmutableSamplers=binding.immutable_samplers,
+                        )
+                        for binding_index, binding in enumerate(bindings or [])
+                    ]
+                ),
                 None,
             )
         )
@@ -449,14 +461,127 @@ class GraphicsApp:
         del self.context.allocations[memory_key]
 
     @_add_to_resources
-    def new_pipeline(
-        self, pipeline_description: Tuple[kt.GraphicsPipelineDescription, object]
-    ) -> kt.Pipeline:
-        return kt.Pipeline(
-            vk.vkCreateGraphicsPipelines(
-                self.context.device, None, 1, [pipeline_description[0]], None
-            )[0]
+    def new_graphics_pipelines(
+        self, pipeline_descriptions: typing.List[kt.GraphicsPipelineDescription]
+    ) -> typing.List[kt.Pipeline]:
+        input_assembly_state = vk.VkPipelineInputAssemblyStateCreateInfo(
+            topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
         )
+        rasterization_state = vk.VkPipelineRasterizationStateCreateInfo(
+            depthClampEnable=vk.VK_FALSE,
+            rasterizerDiscardEnable=vk.VK_FALSE,
+            polygonMode=vk.VK_POLYGON_MODE_FILL,
+            cullMode=vk.VK_CULL_MODE_BACK_BIT,
+            frontFace=vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            lineWidth=1,
+            depthBiasEnable=vk.VK_FALSE,
+            depthBiasConstantFactor=0.0,
+            depthBiasClamp=0.0,
+            depthBiasSlopeFactor=0.0,
+        )
+        color_blend_state = vk.VkPipelineColorBlendStateCreateInfo(
+            pAttachments=[
+                vk.VkPipelineColorBlendAttachmentState(
+                    colorWriteMask=vk.VK_COLOR_COMPONENT_R_BIT
+                    | vk.VK_COLOR_COMPONENT_G_BIT
+                    | vk.VK_COLOR_COMPONENT_B_BIT
+                    | vk.VK_COLOR_COMPONENT_A_BIT
+                )
+            ]
+        )
+
+        native_shader_stage_lists = [
+            [
+                vk.VkPipelineShaderStageCreateInfo(
+                    stage=vk.VK_SHADER_STAGE_VERTEX_BIT,
+                    module=pipeline_description.vertex_shader,
+                    pName="main",
+                ),
+                vk.VkPipelineShaderStageCreateInfo(
+                    stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT,
+                    module=pipeline_description.fragment_shader,
+                    pName="main",
+                ),
+            ]
+            for pipeline_description in pipeline_descriptions
+        ]
+
+        default_depth_state = vk.VkPipelineDepthStencilStateCreateInfo(
+            depthCompareOp=vk.VK_COMPARE_OP_LESS
+        )
+
+        pipelines = vk.vkCreateGraphicsPipelines(
+            self.context.device,
+            None,
+            len(pipeline_descriptions),
+            [
+                vk.VkGraphicsPipelineCreateInfo(
+                    pColorBlendState=color_blend_state,
+                    pDepthStencilState=vk.VkPipelineDepthStencilStateCreateInfo(
+                        depthTestEnable=pipeline_description.depth_description.test_enabled,
+                        depthWriteEnable=pipeline_description.depth_description.write_enabled,
+                        depthCompareOp=vk.VK_COMPARE_OP_LESS,
+                    )
+                    if pipeline_description.depth_description
+                    else default_depth_state,
+                    pInputAssemblyState=input_assembly_state,
+                    layout=pipeline_description.pipeline_layout,
+                    pMultisampleState=vk.VkPipelineMultisampleStateCreateInfo(
+                        rasterizationSamples=1 << pipeline_description.sample_count
+                    ),
+                    pRasterizationState=rasterization_state,
+                    renderPass=pipeline_description.render_pass,
+                    pStages=native_shader_stage_list,
+                    pVertexInputState=vk.VkPipelineVertexInputStateCreateInfo(
+                        pVertexBindingDescriptions=[
+                            vk.VkVertexInputBindingDescription(
+                                binding=binding_index,
+                                stride=vertex_binding.stride,
+                                inputRate=vertex_binding.input_rate,
+                            )
+                            for binding_index, vertex_binding in enumerate(
+                                pipeline_description.vertex_bindings or []
+                            )
+                        ],
+                        pVertexAttributeDescriptions=[
+                            vk.VkVertexInputAttributeDescription(
+                                location=location_index,
+                                binding=vertex_attribute.binding,
+                                format=vertex_attribute.pixel_format,
+                                offset=vertex_attribute.offset,
+                            )
+                            for location_index, vertex_attribute in enumerate(
+                                pipeline_description.vertex_attributes or []
+                            )
+                        ],
+                    ),
+                    pViewportState=vk.VkPipelineViewportStateCreateInfo(
+                        pViewports=[
+                            vk.VkViewport(
+                                width=pipeline_description.width,
+                                height=pipeline_description.height,
+                                minDepth=0.0,
+                                maxDepth=1.0,
+                            )
+                        ],
+                        pScissors=[
+                            vk.VkRect2D(
+                                extent=vk.VkExtent2D(
+                                    pipeline_description.width,
+                                    pipeline_description.height,
+                                )
+                            )
+                        ],
+                    ),
+                )
+                for native_shader_stage_list, pipeline_description in zip(
+                    native_shader_stage_lists, pipeline_descriptions
+                )
+            ],
+            None,
+        )
+
+        return [pipelines[i] for i in range(len(pipeline_descriptions))]
 
     @_add_to_resources
     def new_pipeline_layout(
@@ -472,13 +597,63 @@ class GraphicsApp:
 
     @_add_to_resources
     def new_render_pass(
-        self, *, attachments: List[object], subpass_descriptions: List[object]
+        self,
+        *,
+        attachment_descriptions: List[kt.AttachmentDescription],
+        subpass_descriptions: List[kt.SubpassDescription],
     ) -> kt.RenderPass:
+        attachments = [
+            vk.VkAttachmentDescription(
+                format=attachment_description.pixel_format,
+                samples=1 << attachment_description.sample_count,
+                loadOp=attachment_description.load_op,
+                storeOp=attachment_description.store_op,
+                stencilLoadOp=kt.LoadOp.DONT_CARE,
+                stencilStoreOp=kt.StoreOp.DISCARD,
+                initialLayout=attachment_description.initial_layout,
+                finalLayout=attachment_description.final_layout,
+            )
+            for attachment_description in attachment_descriptions
+        ]
+        native_resources = [
+            (
+                [
+                    vk.VkAttachmentReference(attachment=attachment_index, layout=layout)
+                    for attachment_index, layout in subpass_description.color_attachments
+                ],
+                [
+                    vk.VkAttachmentReference(attachment=attachment_index, layout=layout)
+                    for attachment_index, layout in subpass_description.resolve_attachments
+                ]
+                if subpass_description.resolve_attachments
+                else None,
+                vk.VkAttachmentReference(
+                    attachment=subpass_description.depth_attachment_index,
+                    layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                )
+                if subpass_description.depth_attachment_index is not None
+                else None,
+            )
+            for subpass_description in subpass_descriptions
+        ]
+        subpasses = [
+            vk.VkSubpassDescription(
+                pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pColorAttachments=color_attachments,
+                pResolveAttachments=resolve_attachments,
+                pDepthStencilAttachment=depth_attachment,
+            )
+            for subpass_description, (
+                color_attachments,
+                resolve_attachments,
+                depth_attachment,
+            ) in zip(subpass_descriptions, native_resources)
+        ]
         return kt.RenderPass(
             vk.vkCreateRenderPass(
                 self.context.device,
                 vk.VkRenderPassCreateInfo(
-                    pAttachments=attachments, pSubpasses=subpass_descriptions
+                    pAttachments=attachments, pSubpasses=subpasses
                 ),
                 None,
             )
@@ -503,7 +678,7 @@ class GraphicsApp:
             )
         )
 
-    def new_shader_set(self, *paths: str) -> Tuple:
+    def new_shader_set(self, *paths: str) -> typing.Tuple:
         filenames = [path.split("/")[-1] for path in paths]
         stages = [filename.split(".")[-2] for filename in filenames]
         attribute_names = ["_".join(filename.split(".")[:2]) for filename in filenames]

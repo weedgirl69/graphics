@@ -1,24 +1,19 @@
-import collections
 import dataclasses
 from enum import Enum, IntEnum
 import typing
 from typing import List, NewType, Optional, Tuple
 import vulkan as vk
 
-AttachmentDescription = NewType("AttachmentDescription", object)
 Buffer = NewType("Buffer", object)
 ClearValue = NewType("ClearValue", object)
 CommandBuffer = NewType("CommandBuffer", object)
 CommandPool = NewType("CommandPool", object)
-DepthDescription = NewType("DepthDescription", object)
-DescriptorSetLayoutBinding = NewType("DescriptorSetLayoutBinding", object)
 DescriptorPool = NewType("DescriptorPool", object)
 DescriptorSet = NewType("DescriptorSet", object)
 DescriptorSetLayout = NewType("DescriptorSetLayout", object)
 Device = NewType("Device", object)
 DeviceMemory = NewType("DeviceMemory", object)
 Framebuffer = NewType("Framebuffer", object)
-GraphicsPipelineDescription = NewType("GraphicsPipelineDescription", object)
 Image = NewType("Image", object)
 ImageView = NewType("ImageView", object)
 Instance = NewType("Instance", object)
@@ -29,9 +24,6 @@ PipelineLayout = NewType("PipelineLayout", object)
 RenderPass = NewType("RenderPass", object)
 Sampler = NewType("Sampler", object)
 ShaderModule = NewType("ShaderModule", object)
-SubpassDescription = NewType("SubpassDescription", object)
-VertexAttribute = NewType("VertexAttribute", object)
-VertexBinding = NewType("VertexBinding", object)
 WriteDescriptorImage = NewType("WriteDescriptorImage", object)
 
 
@@ -122,27 +114,14 @@ class VertexInputRate(IntEnum):
     PER_INSTANCE = vk.VK_VERTEX_INPUT_RATE_INSTANCE
 
 
-def new_attachment_description(
-    *,
-    pixel_format: Format,
-    sample_count: int = 0,
-    load_op: LoadOp = LoadOp.DONT_CARE,
-    store_op: StoreOp = StoreOp.DISCARD,
-    initial_layout: ImageLayout = ImageLayout.UNDEFINED,
-    final_layout: ImageLayout = ImageLayout.GENERAL,
-) -> AttachmentDescription:
-    return AttachmentDescription(
-        vk.VkAttachmentDescription(
-            format=pixel_format,
-            samples=1 << sample_count,
-            loadOp=load_op,
-            storeOp=store_op,
-            stencilLoadOp=LoadOp.DONT_CARE,
-            stencilStoreOp=StoreOp.DISCARD,
-            initialLayout=initial_layout,
-            finalLayout=final_layout,
-        )
-    )
+@dataclasses.dataclass(frozen=True)
+class AttachmentDescription:
+    pixel_format: Format
+    sample_count: int = 0
+    load_op: LoadOp = LoadOp.DONT_CARE
+    store_op: StoreOp = StoreOp.DISCARD
+    initial_layout: ImageLayout = ImageLayout.UNDEFINED
+    final_layout: ImageLayout = ImageLayout.GENERAL
 
 
 def new_clear_value(
@@ -157,204 +136,70 @@ def new_clear_value(
     )
 
 
-def new_depth_description(
-    *, test_enabled: bool = False, write_enabled: bool = False
-) -> DepthDescription:
-    return DepthDescription(
-        vk.VkPipelineDepthStencilStateCreateInfo(
-            depthTestEnable=test_enabled,
-            depthWriteEnable=write_enabled,
-            depthCompareOp=vk.VK_COMPARE_OP_LESS,
-        )
-    )
+@dataclasses.dataclass(frozen=True)
+class DepthDescription:
+    test_enabled: bool = False
+    write_enabled: bool = False
 
 
-def new_descriptor_layout_binding(
-    *,
-    binding: int,
-    count: int = 1,
-    immutable_samplers: typing.Optional[typing.List[Sampler]] = None,
-    stage: ShaderStage,
-    descriptor_type: DescriptorType,
-):
-    return vk.VkDescriptorSetLayoutBinding(
-        binding=binding,
-        descriptorType=descriptor_type,
-        descriptorCount=count,
-        stageFlags=stage,
-        pImmutableSamplers=immutable_samplers,
-    )
+@dataclasses.dataclass(frozen=True)
+class DescriptorSetLayoutBinding:
+    stage: ShaderStage
+    descriptor_type: DescriptorType
+    count: int = 1
+    immutable_samplers: typing.Optional[typing.List[Sampler]] = None
 
 
-def new_graphics_pipeline_description(
-    *,
-    pipeline_layout: PipelineLayout,
-    render_pass: RenderPass,
-    vertex_shader: ShaderModule,
-    fragment_shader: ShaderModule,
-    vertex_attributes: Optional[List[VertexAttribute]] = None,
-    vertex_bindings: Optional[List[VertexBinding]] = None,
-    width: int,
-    height: int,
-    multisample_description: Optional[MultisampleDescription] = None,
-    depth_description: Optional[DepthDescription] = None,
-) -> Tuple[GraphicsPipelineDescription, collections.abc.ValuesView]:
-    # pylint: disable=invalid-name,too-many-locals
-    extent = vk.VkExtent2D(width, height)
-
-    shader_stages = [
-        vk.VkPipelineShaderStageCreateInfo(
-            stage=vk.VK_SHADER_STAGE_VERTEX_BIT, module=vertex_shader, pName="main"
-        ),
-        vk.VkPipelineShaderStageCreateInfo(
-            stage=vk.VK_SHADER_STAGE_FRAGMENT_BIT, module=fragment_shader, pName="main"
-        ),
-    ]
-
-    vertex_input_state = vk.VkPipelineVertexInputStateCreateInfo(
-        pVertexBindingDescriptions=vertex_bindings,
-        pVertexAttributeDescriptions=vertex_attributes,
-    )
-
-    input_assembly_state = vk.VkPipelineInputAssemblyStateCreateInfo(
-        topology=vk.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
-    )
-
-    viewport_state = vk.VkPipelineViewportStateCreateInfo(
-        pViewports=[
-            vk.VkViewport(width=width, height=height, minDepth=0.0, maxDepth=1.0)
-        ],
-        pScissors=[vk.VkRect2D(extent=extent)],
-    )
-
-    rasterizer_state = vk.VkPipelineRasterizationStateCreateInfo(
-        depthClampEnable=vk.VK_FALSE,
-        rasterizerDiscardEnable=vk.VK_FALSE,
-        polygonMode=vk.VK_POLYGON_MODE_FILL,
-        cullMode=vk.VK_CULL_MODE_BACK_BIT,
-        frontFace=vk.VK_FRONT_FACE_COUNTER_CLOCKWISE,
-        lineWidth=1,
-        depthBiasEnable=vk.VK_FALSE,
-        depthBiasConstantFactor=0.0,
-        depthBiasClamp=0.0,
-        depthBiasSlopeFactor=0.0,
-    )
-
-    if not multisample_description:
-        multisample_description = vk.VkPipelineMultisampleStateCreateInfo(
-            rasterizationSamples=vk.VK_SAMPLE_COUNT_1_BIT
-        )
-
-    color_blend_state = vk.VkPipelineColorBlendStateCreateInfo(
-        pAttachments=[
-            vk.VkPipelineColorBlendAttachmentState(
-                colorWriteMask=vk.VK_COLOR_COMPONENT_R_BIT
-                | vk.VK_COLOR_COMPONENT_G_BIT
-                | vk.VK_COLOR_COMPONENT_B_BIT
-                | vk.VK_COLOR_COMPONENT_A_BIT
-            )
-        ]
-    )
-
-    context = locals().values()
-
-    return (
-        vk.VkGraphicsPipelineCreateInfo(
-            pStages=shader_stages,
-            pVertexInputState=vertex_input_state,
-            pInputAssemblyState=input_assembly_state,
-            pTessellationState=None,
-            pViewportState=viewport_state,
-            pRasterizationState=rasterizer_state,
-            pMultisampleState=multisample_description,
-            pDepthStencilState=depth_description,
-            pColorBlendState=color_blend_state,
-            pDynamicState=None,
-            layout=pipeline_layout,
-            renderPass=render_pass,
-            subpass=0,
-        ),
-        context,
-    )
+@dataclasses.dataclass(frozen=True)
+class VertexAttribute:
+    binding: int
+    pixel_format: Format
+    offset: int = 0
 
 
-def new_multisample_description(sample_count: int = 0) -> MultisampleDescription:
-    return MultisampleDescription(
-        vk.VkPipelineMultisampleStateCreateInfo(rasterizationSamples=1 << sample_count)
-    )
+@dataclasses.dataclass(frozen=True)
+class VertexBinding:
+    stride: int
+    input_rate: VertexInputRate = VertexInputRate.PER_VERTEX
 
 
-def new_subpass_description(
-    *,
-    color_attachments: List[Tuple[int, ImageLayout]],
-    resolve_attachments: Optional[List[Tuple[int, ImageLayout]]] = None,
-    depth_attachment: int = None,
-) -> SubpassDescription:
-    if depth_attachment:
-        depth_attachment = vk.VkAttachmentReference(
-            attachment=1, layout=vk.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        )
-
-    if not resolve_attachments:
-        resolve_attachments = []
-
-    color_attachments = [
-        vk.VkAttachmentReference(attachment=attachment_index, layout=layout)
-        for attachment_index, layout in color_attachments
-    ]
-
-    resolve_attachments = [
-        vk.VkAttachmentReference(attachment=attachment_index, layout=layout)
-        for attachment_index, layout in resolve_attachments
-    ]
-
-    return SubpassDescription(
-        vk.VkSubpassDescription(
-            pipelineBindPoint=vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pColorAttachments=color_attachments,
-            pResolveAttachments=resolve_attachments,
-            pDepthStencilAttachment=depth_attachment,
-        )
-    )
+@dataclasses.dataclass(frozen=True)
+class GraphicsPipelineDescription:
+    pipeline_layout: PipelineLayout
+    render_pass: RenderPass
+    vertex_shader: ShaderModule
+    fragment_shader: ShaderModule
+    width: int
+    height: int
+    vertex_attributes: Optional[List[VertexAttribute]] = None
+    vertex_bindings: Optional[List[VertexBinding]] = None
+    sample_count: int = 0
+    depth_description: Optional[DepthDescription] = None
 
 
-def new_vertex_attribute(
-    *, location: int, binding: int, pixel_format: Format, offset: int = 0
-) -> VertexAttribute:
-    return VertexAttribute(
-        vk.VkVertexInputAttributeDescription(
-            location=location, binding=binding, format=pixel_format, offset=offset
-        )
-    )
+@dataclasses.dataclass(frozen=True)
+class SubpassDescription:
+    color_attachments: typing.List[typing.Tuple[int, ImageLayout]]
+    depth_attachment_index: typing.Optional[int] = None
+    resolve_attachments: typing.Optional[
+        typing.List[typing.Tuple[int, ImageLayout]]
+    ] = None
 
 
-def new_vertex_binding(
-    *,
-    binding: int,
-    stride: int,
-    input_rate: VertexInputRate = VertexInputRate.PER_VERTEX,
-) -> VertexBinding:
-    return VertexBinding(
-        vk.VkVertexInputBindingDescription(
-            binding=binding, stride=stride, inputRate=input_rate
-        )
-    )
-
-
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DescriptorBufferInfo:
     buffer: Buffer
     byte_count: int
     byte_offset: int
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DescriptorImageInfo:
     image_view: ImageView
     layout: ImageLayout
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DescriptorBufferWrites:
     binding: int
     buffer_infos: typing.List[DescriptorBufferInfo]
@@ -363,7 +208,7 @@ class DescriptorBufferWrites:
     count: int = 1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DescriptorImageWrites:
     binding: int
     count: int

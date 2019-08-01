@@ -1,14 +1,18 @@
 from __future__ import annotations
 import array
 import base64
-import collections
-import json
 import dataclasses
+import json
+import math
 import typing
 
 AffineTransform = typing.Tuple[
     float, float, float, float, float, float, float, float, float, float, float, float
 ]
+
+
+def dot(lhs: typing.Sequence[float], rhs: typing.Sequence[float]) -> float:
+    return sum((x * y for x, y in zip(lhs, rhs)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -52,6 +56,75 @@ class Model:
     meshes: typing.List[typing.List[Primitive]]
     node_transforms: typing.List[AffineTransform]
     scenes: typing.List[Scene]
+
+    def get_bounds(
+        self, *, scene_index: int, node_transforms: typing.List[AffineTransform]
+    ) -> typing.Tuple[typing.Tuple[float, ...], float]:
+        def transform_point(
+            *, point: typing.Tuple[float, ...], transform: typing.Tuple[float, ...]
+        ) -> typing.Tuple[float, ...]:
+            return tuple(
+                dot(point, transform[column_index * 4 : column_index * 4 + 3])
+                + transform[column_index * 4 + 3]
+                for column_index in range(3)
+            )
+
+        scene = self.scenes[scene_index]
+        transform_sequence = scene.transform_sequence
+
+        bounds_points_transform = (
+            (
+                (
+                    tuple(
+                        (primitive.bounds.min, primitive.bounds.max)[
+                            int(bool(selection & (1 << component)))
+                        ][component]
+                        for component in range(3)
+                    )
+                    for selection in range(8)
+                ),
+                node_transforms[
+                    transform_sequence.node_index_to_flattened_index[node_index]
+                ],
+            )
+            for mesh_index, node_indices in enumerate(scene.mesh_index_to_node_indices)
+            for node_index in node_indices
+            for primitive in self.meshes[mesh_index]
+        )
+
+        transformed_bounds_points = list(
+            transform_point(point=bounds_point, transform=transform)
+            for bounds_points, transform in bounds_points_transform
+            for bounds_point in bounds_points
+        )
+
+        bounds_min = tuple(
+            min(component) for component in zip(*transformed_bounds_points)
+        )
+        bounds_max = tuple(
+            max(component) for component in zip(*transformed_bounds_points)
+        )
+
+        bounds_center = tuple(
+            0.5 * min_component + 0.5 * max_component
+            for min_component, max_component in zip(bounds_min, bounds_max)
+        )
+
+        radius = math.sqrt(
+            max(
+                dot(offset, offset)
+                for offset in (
+                    tuple(
+                        bounds_component - center_component
+                        for bounds_component, center_component in zip(
+                            bounds_point, bounds_center
+                        )
+                    )
+                    for bounds_point in transformed_bounds_points
+                )
+            )
+        )
+        return bounds_center, radius
 
 
 def _get_node_transforms(gltf_json: typing.Dict) -> typing.List[AffineTransform]:
