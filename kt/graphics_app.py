@@ -151,17 +151,15 @@ class GraphicsApp:
         max_set_count: int,
         descriptor_type_counts: typing.Dict[kt.DescriptorType, int],
     ) -> kt.DescriptorPool:
+        pool_sizes = [
+            vk.VkDescriptorPoolSize(type=descriptor_type, descriptorCount=count)
+            for descriptor_type, count in descriptor_type_counts.items()
+        ]
         return kt.DescriptorPool(
             vk.vkCreateDescriptorPool(
                 self.context.device,
                 vk.VkDescriptorPoolCreateInfo(
-                    maxSets=max_set_count,
-                    pPoolSizes=[
-                        vk.VkDescriptorPoolSize(
-                            type=descriptor_type, descriptorCount=count
-                        )
-                        for descriptor_type, count in descriptor_type_counts.items()
-                    ],
+                    maxSets=max_set_count, pPoolSizes=pool_sizes
                 ),
                 None,
             )
@@ -171,21 +169,20 @@ class GraphicsApp:
     def new_descriptor_set_layout(
         self, bindings: typing.List[kt.DescriptorSetLayoutBinding] = None
     ) -> kt.DescriptorSetLayout:
+        bindings = [
+            vk.VkDescriptorSetLayoutBinding(
+                binding=binding_index,
+                descriptorType=binding.descriptor_type,
+                descriptorCount=binding.count,
+                stageFlags=binding.stage,
+                pImmutableSamplers=binding.immutable_samplers,
+            )
+            for binding_index, binding in enumerate(bindings or [])
+        ]
         return kt.DescriptorSetLayout(
             vk.vkCreateDescriptorSetLayout(
                 self.context.device,
-                vk.VkDescriptorSetLayoutCreateInfo(
-                    pBindings=[
-                        vk.VkDescriptorSetLayoutBinding(
-                            binding=binding_index,
-                            descriptorType=binding.descriptor_type,
-                            descriptorCount=binding.count,
-                            stageFlags=binding.stage,
-                            pImmutableSamplers=binding.immutable_samplers,
-                        )
-                        for binding_index, binding in enumerate(bindings or [])
-                    ]
-                ),
+                vk.VkDescriptorSetLayoutCreateInfo(pBindings=bindings),
                 None,
             )
         )
