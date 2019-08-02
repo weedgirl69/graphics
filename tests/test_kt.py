@@ -259,10 +259,7 @@ def test_metallic_roughness(app, test_data):
                 framebuffer=framebuffer,
                 width=test_data.width * 2,
                 height=test_data.height * 2,
-                clear_values=[
-                    kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
-                    kt.new_clear_value(depth=1),
-                ],
+                clear_values=[kt.ClearColor(0.5, 0.5, 0.5, 1.0), kt.ClearDepth(1.0)],
             )
 
             command_buffer_builder.bind_pipeline(pipeline)
@@ -533,7 +530,7 @@ def test_texture(app, test_data):
             framebuffer=framebuffer,
             width=test_data.width,
             height=test_data.height,
-            clear_values=[kt.new_clear_value(color=(0, 0, 0, 0))],
+            clear_values=[kt.ClearColor(0, 0, 0, 0)],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -748,10 +745,7 @@ def test_instanced_cubes(app, test_data, cube_resources):
             framebuffer=cube_resources["framebuffer"],
             width=test_data.width,
             height=test_data.height,
-            clear_values=[
-                kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
-                kt.new_clear_value(depth=1),
-            ],
+            clear_values=[kt.ClearColor(0.5, 0.5, 0.5, 1.0), kt.ClearDepth(1)],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -781,7 +775,7 @@ def test_instanced_cubes(app, test_data, cube_resources):
 
 
 @cube_app_test
-def test_cube(app, test_data, cube_resources):
+def test_cube(app, test_data, cube_resources) -> None:
     shader_set = app.new_shader_set("tests/cube.vert.glsl", "tests/cube.frag.glsl")
 
     pipeline = app.new_graphics_pipelines(
@@ -817,10 +811,7 @@ def test_cube(app, test_data, cube_resources):
             framebuffer=cube_resources["framebuffer"],
             width=test_data.width,
             height=test_data.height,
-            clear_values=[
-                kt.new_clear_value(color=(0.5, 0.5, 0.5, 1.0)),
-                kt.new_clear_value(depth=1),
-            ],
+            clear_values=[kt.ClearColor(0.5, 0.5, 0.5, 1.0), kt.ClearDepth(1.0)],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -899,7 +890,7 @@ def test_triangle(app, test_data):
             framebuffer=framebuffer,
             width=test_data.width,
             height=test_data.height,
-            clear_values=[kt.new_clear_value(color=(0, 0, 0, 0))],
+            clear_values=[kt.ClearColor(0, 0, 0, 0)],
         )
 
         command_buffer_builder.bind_pipeline(pipeline)
@@ -918,7 +909,7 @@ def test_triangle(app, test_data):
 
 @AppTest()
 def test_clear(app, test_data):
-    clear_color = [5 / 255, 144 / 255, 51 / 255, 1.0]
+    clear_color = (5 / 255, 144 / 255, 51 / 255, 1.0)
     image = app.new_image(
         format=Format.R8G8B8A8_UNORM,
         usage=ImageUsage.TRANSFER_DESTINATION | ImageUsage.TRANSFER_SOURCE,
@@ -951,7 +942,7 @@ def test_clear(app, test_data):
         )
 
 
-def test_errors():
+def test_errors() -> None:
     with kt.graphics_app.run_graphics() as app:
         buffer = app.new_buffer(byte_count=0, usage=0)
         with pytest.raises(kt.vk.VkErrorOutOfDeviceMemory):

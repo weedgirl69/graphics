@@ -1,25 +1,11 @@
 from __future__ import annotations
-from typing import List, Tuple
+import typing
 import vulkan as vk
-from kt import (
-    Buffer,
-    ClearValue,
-    CommandBuffer,
-    DescriptorSet,
-    Filter,
-    Framebuffer,
-    Image,
-    ImageAspect,
-    ImageLayout,
-    Pipeline,
-    PipelineLayout,
-    IndexType,
-    RenderPass,
-)
+import kt
 
 
 class CommandBufferBuilder:
-    def __init__(self, *, command_buffer: CommandBuffer, usage: int) -> None:
+    def __init__(self, *, command_buffer: kt.CommandBuffer, usage: int) -> None:
         self.command_buffer = command_buffer
         self.usage = usage
 
@@ -36,7 +22,9 @@ class CommandBufferBuilder:
         vk.vkEndCommandBuffer(self.command_buffer)
 
     def bind_descriptor_sets(
-        self, pipeline_layout: PipelineLayout, descriptor_sets: List[DescriptorSet]
+        self,
+        pipeline_layout: kt.PipelineLayout,
+        descriptor_sets: typing.List[kt.DescriptorSet],
     ) -> None:
         vk.vkCmdBindDescriptorSets(
             self.command_buffer,
@@ -52,12 +40,25 @@ class CommandBufferBuilder:
     def begin_render_pass(
         self,
         *,
-        render_pass: RenderPass,
-        framebuffer: Framebuffer,
+        render_pass: kt.RenderPass,
+        framebuffer: kt.Framebuffer,
         width: int,
         height: int,
-        clear_values: List[ClearValue],
+        clear_values: typing.List[typing.Union[kt.ClearColor, kt.ClearDepth]],
     ) -> None:
+        clear_values = [
+            {
+                kt.ClearColor: lambda x: vk.VkClearValue(
+                    color=vk.VkClearColorValue(
+                        float32=(x.red, x.green, x.blue, x.alpha)
+                    )
+                ),
+                kt.ClearDepth: lambda x: vk.VkClearValue(
+                    depthStencil=vk.VkClearDepthStencilValue(depth=x.depth)
+                ),
+            }[type(clear_value)](clear_value)
+            for clear_value in clear_values
+        ]
         vk.vkCmdBeginRenderPass(
             self.command_buffer,
             vk.VkRenderPassBeginInfo(
@@ -69,18 +70,18 @@ class CommandBufferBuilder:
             vk.VK_SUBPASS_CONTENTS_INLINE,
         )
 
-    def bind_pipeline(self, pipeline: Pipeline) -> None:
+    def bind_pipeline(self, pipeline: kt.Pipeline) -> None:
         vk.vkCmdBindPipeline(
             self.command_buffer, vk.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline
         )
 
     def bind_index_buffer(
-        self, *, buffer: Buffer, index_type: IndexType, byte_offset: int = 0
+        self, *, buffer: kt.Buffer, index_type: kt.IndexType, byte_offset: int = 0
     ) -> None:
         vk.vkCmdBindIndexBuffer(self.command_buffer, buffer, byte_offset, index_type)
 
     def bind_vertex_buffers(
-        self, buffers: List[Buffer], byte_offsets: List[int] = None
+        self, buffers: typing.List[kt.Buffer], byte_offsets: typing.List[int] = None
     ) -> None:
         if not byte_offsets:
             byte_offsets = [0] * len(buffers)
@@ -91,11 +92,11 @@ class CommandBufferBuilder:
     def blit_image(
         self,
         *,
-        source_image: Image,
+        source_image: kt.Image,
         source_subresource_index: int = 0,
         source_width: int,
         source_height: int,
-        destination_image: Image,
+        destination_image: kt.Image,
         destination_subresource_index: int = 0,
         destination_width: int,
         destination_height: int,
@@ -103,14 +104,14 @@ class CommandBufferBuilder:
         vk.vkCmdBlitImage(
             self.command_buffer,
             source_image,
-            ImageLayout.TRANSFER_SOURCE,
+            kt.ImageLayout.TRANSFER_SOURCE,
             destination_image,
-            ImageLayout.TRANSFER_DESTINATION,
+            kt.ImageLayout.TRANSFER_DESTINATION,
             1,
             [
                 vk.VkImageBlit(
                     srcSubresource=vk.VkImageSubresourceLayers(
-                        aspectMask=ImageAspect.COLOR,
+                        aspectMask=kt.ImageAspect.COLOR,
                         mipLevel=source_subresource_index,
                         layerCount=1,
                     ),
@@ -119,7 +120,7 @@ class CommandBufferBuilder:
                         vk.VkOffset3D(source_width, source_height, 1),
                     ],
                     dstSubresource=vk.VkImageSubresourceLayers(
-                        aspectMask=ImageAspect.COLOR,
+                        aspectMask=kt.ImageAspect.COLOR,
                         mipLevel=destination_subresource_index,
                         layerCount=1,
                     ),
@@ -129,11 +130,14 @@ class CommandBufferBuilder:
                     ],
                 )
             ],
-            Filter.LINEAR,
+            kt.Filter.LINEAR,
         )
 
     def clear_color_image(
-        self, *, image: Image, color: Tuple[float, float, float, float] = (0, 0, 0, 0)
+        self,
+        *,
+        image: kt.Image,
+        color: typing.Tuple[float, float, float, float] = (0, 0, 0, 0),
     ) -> None:
         vk.vkCmdClearColorImage(
             self.command_buffer,
@@ -149,12 +153,12 @@ class CommandBufferBuilder:
     def copy_buffer_to_buffer(
         self,
         *,
-        source_buffer: Buffer,
+        source_buffer: kt.Buffer,
         source_offset: int = 0,
-        destination_buffer: Buffer,
+        destination_buffer: kt.Buffer,
         destination_offset: int = 0,
         byte_count: int,
-    ):
+    ) -> None:
         vk.vkCmdCopyBuffer(
             self.command_buffer,
             source_buffer,
@@ -170,7 +174,7 @@ class CommandBufferBuilder:
         )
 
     def copy_buffer_to_image(
-        self, *, buffer: Buffer, image: Image, width: int, height: int
+        self, *, buffer: kt.Buffer, image: kt.Image, width: int, height: int
     ) -> None:
         vk.vkCmdCopyBufferToImage(
             self.command_buffer,
@@ -189,7 +193,7 @@ class CommandBufferBuilder:
         )
 
     def copy_image_to_buffer(
-        self, *, image: Image, buffer: Buffer, width: int, height: int
+        self, *, image: kt.Image, buffer: kt.Buffer, width: int, height: int
     ) -> None:
         vk.vkCmdCopyImageToBuffer(
             self.command_buffer,
@@ -247,9 +251,9 @@ class CommandBufferBuilder:
     def pipeline_barrier(
         self,
         *,
-        image: Image,
-        old_layout: ImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
-        new_layout: ImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        image: kt.Image,
+        old_layout: kt.ImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
+        new_layout: kt.ImageLayout = vk.VK_IMAGE_LAYOUT_UNDEFINED,
         base_mip_level: int = 0,
         mip_count: int = 1,
     ) -> None:

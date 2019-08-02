@@ -17,7 +17,9 @@ TEST_IMAGE_SAMPLE_COUNT = 3
 GLTF_SAMPLE_MODELS_DIR = os.environ["GLTF_SAMPLE_MODELS_DIR"]
 
 
-def cross(lhs, rhs):
+def cross(
+    lhs: typing.Tuple[float, float, float], rhs: typing.Tuple[float, float, float]
+) -> typing.Tuple[float, float, float]:
     return (
         lhs[1] * rhs[2] - lhs[2] * rhs[1],
         lhs[2] * rhs[0] - lhs[0] * rhs[2],
@@ -29,40 +31,38 @@ def dot(lhs: typing.Sequence[float], rhs: typing.Sequence[float]) -> float:
     return sum((x * y for x, y in zip(lhs, rhs)))
 
 
-def normalize(vector):
+def normalize(vector: typing.Sequence[float]) -> typing.Sequence[float]:
     magnitude = math.sqrt(dot(vector, vector))
     return tuple(_ / magnitude for _ in vector)
 
 
-def matrix_multiply(lhs, rhs):
+def matrix_multiply(lhs: typing.Tuple, rhs: typing.Tuple) -> typing.Tuple:
     rows = [lhs[row_index::4] for row_index in range(4)]
     columns = [rhs[column_index * 4 :][:4] for column_index in range(4)]
     return tuple(dot(row, column) for column in columns for row in rows)
 
 
-def test_bounds():
+def test_bounds() -> None:
     gltf_path = os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/Box/glTF/Box.gltf")
 
     with open(gltf_path) as gltf_file:
 
-        def read_file_bytes(uri: str):
+        def read_file_bytes(uri: str) -> bytes:
             with open(os.path.join(os.path.dirname(gltf_path), uri), "rb") as file:
                 return file.read()
 
         model = kt.gltf.from_json(gltf_file, read_file_bytes)
         scene = model.scenes[0]
 
-        transform_sequence = scene.transform_sequence
-
         node_transforms = [
             model.node_transforms[flattened_index]
-            for flattened_index in transform_sequence.node_index_to_flattened_index
+            for flattened_index in scene.node_index_to_flattened_index
         ]
 
         for (
             source_index,
             destination_index,
-        ) in transform_sequence.transform_source_index_to_destination_index:
+        ) in scene.transform_source_index_to_destination_index:
             source_transform = node_transforms[source_index]
             destination_transform = node_transforms[destination_index]
 
@@ -295,6 +295,7 @@ def create_gltf_render_resources(
 def test_gltf() -> None:
     try:
         with kt.graphics_app.run_graphics() as app:
+            app: kt.graphics_app.GraphicsApp = app
             sample_count = 3
             width = 1024
             height = 1024
@@ -380,12 +381,29 @@ def test_gltf() -> None:
 
                     model = kt.gltf.from_json(gltf_file, read_file_bytes)
                     scene = model.scenes[0]
-                    upload_buffer_byte_count = len(model.indices_bytes) + len(
-                        model.attributes_bytes
+
+                    materials_bytes = array.array(
+                        "f",
+                        [1, 1, 1, 1]
+                        + [
+                            component
+                            for material in model.materials
+                            for component in material.base_color_factor
+                        ],
+                    ).tobytes()
+                    upload_buffer_byte_count = (
+                        len(model.indices_bytes)
+                        + len(model.attributes_bytes)
+                        + len(materials_bytes)
                     )
                     upload_buffer = app.new_buffer(
                         byte_count=upload_buffer_byte_count,
                         usage=kt.BufferUsage.TRANSFER_SOURCE,
+                    )
+                    materials_buffer = app.new_buffer(
+                        byte_count=len(materials_bytes),
+                        usage=kt.BufferUsage.UNIFORM
+                        | kt.BufferUsage.TRANSFER_DESTINATION,
                     )
                     index_buffer = (
                         app.new_buffer(
@@ -414,11 +432,14 @@ def test_gltf() -> None:
                         | kt.BufferUsage.TRANSFER_DESTINATION,
                     )
                     memory_set = app.new_memory_set(
-                        device_optimal=([index_buffer] if index_buffer else [])
+                        device_optimal=[materials_buffer]
+                        + ([index_buffer] if index_buffer else [])
                         + ([attributes_buffer] if attributes_buffer else []),
                         uploadable=[upload_buffer, instance_buffer],
                         initial_values={
-                            upload_buffer: model.indices_bytes + model.attributes_bytes
+                            upload_buffer: model.indices_bytes
+                            + model.attributes_bytes
+                            + materials_bytes
                         },
                     )
                     instance_memory = memory_set[instance_buffer]
@@ -428,7 +449,7 @@ def test_gltf() -> None:
                     for (
                         node_index,
                         flattened_index,
-                    ) in scene.transform_sequence.node_index_to_flattened_index.items():
+                    ) in scene.node_index_to_flattened_index.items():
                         flattened_node_transforms[
                             flattened_index
                         ] = model.node_transforms[node_index]
@@ -436,9 +457,7 @@ def test_gltf() -> None:
                     for (
                         source_index,
                         destination_index,
-                    ) in (
-                        scene.transform_sequence.transform_source_index_to_destination_index
-                    ):
+                    ) in scene.transform_source_index_to_destination_index:
                         source_transform = flattened_node_transforms[source_index]
                         destination_transform = flattened_node_transforms[
                             destination_index
@@ -529,10 +548,17 @@ def test_gltf() -> None:
                                 byte_count=len(model.indices_bytes),
                             )
                         command_buffer_builder.copy_buffer_to_buffer(
+                            byte_count=len(model.attributes_bytes),
+                            destination_buffer=attributes_buffer,
                             source_buffer=upload_buffer,
                             source_offset=len(model.indices_bytes),
-                            destination_buffer=attributes_buffer,
-                            byte_count=len(model.attributes_bytes),
+                        )
+                        command_buffer_builder.copy_buffer_to_buffer(
+                            byte_count=len(materials_bytes),
+                            destination_buffer=materials_buffer,
+                            source_buffer=upload_buffer,
+                            source_offset=len(model.indices_bytes)
+                            + len(model.attributes_bytes),
                         )
 
                         command_buffer_builder.bind_descriptor_sets(
@@ -547,8 +573,8 @@ def test_gltf() -> None:
                             render_pass=gltf_render_resources.render_pass,
                             framebuffer=gltf_render_resources.framebuffer,
                             clear_values=[
-                                kt.new_clear_value(color=(1.0, 0.0, 1.0, 1.0)),
-                                kt.new_clear_value(depth=1),
+                                kt.ClearColor(1.0, 0.0, 1.0, 1.0),
+                                kt.ClearDepth(1.0),
                             ],
                             width=width * 2,
                             height=height * 2,

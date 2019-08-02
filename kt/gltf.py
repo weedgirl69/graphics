@@ -37,22 +37,23 @@ class Primitive:
 
 
 @dataclasses.dataclass(frozen=True)
-class TransformSequence:
+class Scene:
+    mesh_index_to_node_indices: typing.List[typing.List[int]]
     node_index_to_flattened_index: typing.Dict[int, int]
     transform_source_index_to_destination_index: typing.List[typing.Tuple[int, int]]
+    mesh_index_to_base_instance_offset: typing.List[typing.Optional[int]]
 
 
 @dataclasses.dataclass(frozen=True)
-class Scene:
-    mesh_index_to_node_indices: typing.List[typing.List[int]]
-    transform_sequence: TransformSequence
-    mesh_index_to_base_instance_offset: typing.List[int]
+class Material:
+    base_color_factor: typing.Tuple[float, float, float, float]
 
 
 @dataclasses.dataclass(frozen=True)
 class Model:
     attributes_bytes: bytes
     indices_bytes: bytes
+    materials: typing.List[Material]
     meshes: typing.List[typing.List[Primitive]]
     node_transforms: typing.List[AffineTransform]
     scenes: typing.List[Scene]
@@ -70,7 +71,6 @@ class Model:
             )
 
         scene = self.scenes[scene_index]
-        transform_sequence = scene.transform_sequence
 
         bounds_points_transform = (
             (
@@ -83,9 +83,7 @@ class Model:
                     )
                     for selection in range(8)
                 ),
-                node_transforms[
-                    transform_sequence.node_index_to_flattened_index[node_index]
-                ],
+                node_transforms[scene.node_index_to_flattened_index[node_index]],
             )
             for mesh_index, node_indices in enumerate(scene.mesh_index_to_node_indices)
             for node_index in node_indices
@@ -239,16 +237,12 @@ def _get_mesh_index_to_node_indices(
     return mesh_index_to_node_indices
 
 
-def _get_transform_sequence(
-    node_index_to_parent_index: typing.List[typing.Optional[int]],
+def _get_node_index_to_flattened_index(
     mesh_index_to_node_indices: typing.List[typing.List[int]],
-) -> TransformSequence:
-    node_index_to_flattened_index = {}
-    transform_source_index_to_destination_index = []
-    current_instance_index = 0
-
-    def visit(node_index: int) -> None:
-        parent_index = node_index_to_parent_index[node_index]
+    node_index_to_parent_index: typing.List[typing.Optional[int]],
+) -> typing.Dict[int, int]:
+    def visit(visited_node_index: int) -> None:
+        parent_index = node_index_to_parent_index[visited_node_index]
         if parent_index is not None:
             if parent_index not in node_index_to_flattened_index:
                 node_index_to_flattened_index[parent_index] = len(
@@ -256,26 +250,46 @@ def _get_transform_sequence(
                 )
                 visit(parent_index)
 
-            transform_source_index_to_destination_index.append(
-                (
-                    node_index_to_flattened_index[parent_index],
-                    node_index_to_flattened_index[node_index],
-                )
-            )
-
-    for node_indices in mesh_index_to_node_indices:
-        for node_index in node_indices:
-            node_index_to_flattened_index[node_index] = current_instance_index
-            current_instance_index += 1
+    node_index_to_flattened_index = {
+        node_index: instance_index
+        for instance_index, node_index in enumerate(
+            node_index
+            for node_indices in mesh_index_to_node_indices
+            for node_index in node_indices
+        )
+    }
 
     for node_indices in mesh_index_to_node_indices:
         for node_index in node_indices:
             visit(node_index)
 
-    return TransformSequence(
-        node_index_to_flattened_index=node_index_to_flattened_index,
-        transform_source_index_to_destination_index=transform_source_index_to_destination_index,
-    )
+    return node_index_to_flattened_index
+
+
+def _get_transform_sequence(
+    *,
+    node_index_to_parent_index: typing.List[typing.Optional[int]],
+    mesh_index_to_node_indices: typing.List[typing.List[int]],
+    node_index_to_flattened_index: typing.Dict[int, int],
+) -> typing.List[typing.Tuple[int, int]]:
+    transform_source_index_to_destination_index = []
+
+    def visit(visited_node_index: int) -> None:
+        parent_index = node_index_to_parent_index[visited_node_index]
+        if parent_index is not None:
+            visit(parent_index)
+            transform_source_index_to_destination_index.append(
+                (
+                    node_index_to_flattened_index[parent_index],
+                    node_index_to_flattened_index[visited_node_index],
+                )
+            )
+
+    for node_indices in mesh_index_to_node_indices:
+        for node_index in node_indices:
+            visit(node_index)
+
+    return transform_source_index_to_destination_index
 
 
 def _get_accessors(
@@ -349,7 +363,7 @@ def _get_mesh_index_to_primitives(
 ) -> typing.Tuple[typing.List[typing.List[Primitive]], bytes, bytes]:
     indices_bytes = bytearray()
     attributes_bytes = bytearray()
-    indices_accessor_index_to_upsampled_indices_offset = {}
+    indices_accessor_index_to_upsampled_indices_offset: typing.Dict[int, int] = {}
 
     def get_index_data_and_count(
         indices_accessor_index: int
@@ -381,7 +395,7 @@ def _get_mesh_index_to_primitives(
             accessor_json["count"],
         )
 
-    def create_gltf_primitive(primitive_json: typing.Dict):
+    def create_gltf_primitive(primitive_json: typing.Dict) -> Primitive:
         attributes_json = primitive_json["attributes"]
         positions_accessor_index = attributes_json["POSITION"]
         positions_accessor_json = accessors_json[positions_accessor_index]
@@ -428,7 +442,20 @@ def _get_mesh_index_to_primitives(
     )
 
 
-def from_json(file: typing.TextIO, uri_resolver):
+def _get_materials(*, materials_json: typing.Dict):
+    return [
+        Material(
+            base_color_factor=tuple(
+                material_json.get("pbrMetallicRoughness", {}).get(
+                    "baseColorFactor", (1.0, 1.0, 1.0, 1.0)
+                )
+            )
+        )
+        for material_json in materials_json
+    ]
+
+
+def from_json(file: typing.TextIO, uri_resolver: typing.Callable) -> Model:
     gltf_json = json.load(file)
 
     node_transforms = _get_node_transforms(gltf_json)
@@ -446,6 +473,8 @@ def from_json(file: typing.TextIO, uri_resolver):
         meshes_json=gltf_json["meshes"],
     )
 
+    materials = _get_materials(materials_json=gltf_json.get("materials", []))
+
     nodes_json = gltf_json["nodes"]
     scenes: typing.List[Scene] = list()
     for scene_json in gltf_json["scenes"]:
@@ -459,21 +488,25 @@ def from_json(file: typing.TextIO, uri_resolver):
             node_indices=scene_node_indices,
             mesh_index_to_node_indices=[list() for _ in meshes],
         )
-        transform_sequence = _get_transform_sequence(
-            node_index_to_parent_index, mesh_index_to_node_indices
+        node_index_to_flattened_index = _get_node_index_to_flattened_index(
+            mesh_index_to_node_indices, node_index_to_parent_index
+        )
+        transform_source_index_to_destination_index = _get_transform_sequence(
+            mesh_index_to_node_indices=mesh_index_to_node_indices,
+            node_index_to_flattened_index=node_index_to_flattened_index,
+            node_index_to_parent_index=node_index_to_parent_index,
         )
         mesh_index_to_base_instance_offset = [
-            transform_sequence.node_index_to_flattened_index[node_indices[0]]
-            if node_indices
-            else None
+            node_index_to_flattened_index[node_indices[0]] if node_indices else None
             for node_indices in mesh_index_to_node_indices
         ]
 
         scenes.append(
             Scene(
-                mesh_index_to_node_indices,
-                transform_sequence,
-                mesh_index_to_base_instance_offset,
+                mesh_index_to_node_indices=mesh_index_to_node_indices,
+                node_index_to_flattened_index=node_index_to_flattened_index,
+                transform_source_index_to_destination_index=transform_source_index_to_destination_index,
+                mesh_index_to_base_instance_offset=mesh_index_to_base_instance_offset,
             )
         )
 
@@ -481,6 +514,7 @@ def from_json(file: typing.TextIO, uri_resolver):
         attributes_bytes=attributes_bytes,
         indices_bytes=indices_bytes,
         node_transforms=node_transforms,
+        materials=materials,
         meshes=meshes,
         scenes=scenes,
     )

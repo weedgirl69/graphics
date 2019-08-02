@@ -1,30 +1,29 @@
 import dataclasses
 from enum import Enum, IntEnum
 import typing
-from typing import List, NewType, Optional, Tuple
 import vulkan as vk
 
-Buffer = NewType("Buffer", object)
-ClearValue = NewType("ClearValue", object)
-CommandBuffer = NewType("CommandBuffer", object)
-CommandPool = NewType("CommandPool", object)
-DescriptorPool = NewType("DescriptorPool", object)
-DescriptorSet = NewType("DescriptorSet", object)
-DescriptorSetLayout = NewType("DescriptorSetLayout", object)
-Device = NewType("Device", object)
-DeviceMemory = NewType("DeviceMemory", object)
-Framebuffer = NewType("Framebuffer", object)
-Image = NewType("Image", object)
-ImageView = NewType("ImageView", object)
-Instance = NewType("Instance", object)
-MultisampleDescription = NewType("MultisampleDescription", object)
-PhysicalDevice = NewType("PhysicalDevice", object)
-Pipeline = NewType("Pipeline", object)
-PipelineLayout = NewType("PipelineLayout", object)
-RenderPass = NewType("RenderPass", object)
-Sampler = NewType("Sampler", object)
-ShaderModule = NewType("ShaderModule", object)
-WriteDescriptorImage = NewType("WriteDescriptorImage", object)
+Buffer = typing.NewType("Buffer", object)
+ClearValue = typing.NewType("ClearValue", object)
+CommandBuffer = typing.NewType("CommandBuffer", object)
+CommandPool = typing.NewType("CommandPool", object)
+DescriptorPool = typing.NewType("DescriptorPool", object)
+DescriptorSet = typing.NewType("DescriptorSet", object)
+DescriptorSetLayout = typing.NewType("DescriptorSetLayout", object)
+Device = typing.NewType("Device", object)
+DeviceMemory = typing.NewType("DeviceMemory", object)
+Framebuffer = typing.NewType("Framebuffer", object)
+Image = typing.NewType("Image", object)
+ImageView = typing.NewType("ImageView", object)
+Instance = typing.NewType("Instance", object)
+MultisampleDescription = typing.NewType("MultisampleDescription", object)
+PhysicalDevice = typing.NewType("PhysicalDevice", object)
+Pipeline = typing.NewType("Pipeline", object)
+PipelineLayout = typing.NewType("PipelineLayout", object)
+RenderPass = typing.NewType("RenderPass", object)
+Sampler = typing.NewType("Sampler", object)
+ShaderModule = typing.NewType("ShaderModule", object)
+WriteDescriptorImage = typing.NewType("WriteDescriptorImage", object)
 
 
 class BufferUsage(IntEnum):
@@ -124,16 +123,17 @@ class AttachmentDescription:
     final_layout: ImageLayout = ImageLayout.GENERAL
 
 
-def new_clear_value(
-    *,
-    color: Optional[Tuple[float, float, float, float]] = None,
-    depth: Optional[float] = None,
-) -> ClearValue:
-    if color:
-        return ClearValue(vk.VkClearValue(color=vk.VkClearColorValue(float32=color)))
-    return ClearValue(
-        vk.VkClearValue(depthStencil=vk.VkClearDepthStencilValue(depth=depth))
-    )
+@dataclasses.dataclass(frozen=True)
+class ClearColor:
+    red: float
+    green: float
+    blue: float
+    alpha: float
+
+
+@dataclasses.dataclass(frozen=True)
+class ClearDepth:
+    depth: float
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,10 +171,10 @@ class GraphicsPipelineDescription:
     fragment_shader: ShaderModule
     width: int
     height: int
-    vertex_attributes: Optional[List[VertexAttribute]] = None
-    vertex_bindings: Optional[List[VertexBinding]] = None
+    vertex_attributes: typing.Optional[typing.List[VertexAttribute]] = None
+    vertex_bindings: typing.Optional[typing.List[VertexBinding]] = None
     sample_count: int = 0
-    depth_description: Optional[DepthDescription] = None
+    depth_description: typing.Optional[DepthDescription] = None
 
 
 @dataclasses.dataclass(frozen=True)

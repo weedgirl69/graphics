@@ -3,18 +3,6 @@ import contextlib
 import dataclasses
 import itertools
 import typing
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    DefaultDict,
-    Generator,
-    List,
-    Optional,
-    Tuple,
-    TypeVar,
-    Union,
-)
 import functools
 import types
 import vulkan as vk
@@ -29,9 +17,9 @@ DEVICE_EXTENSIONS = ["VK_KHR_bind_memory2"]
 BUFFER_TYPE = vk.ffi.typeof("struct VkBuffer_T *")
 IMAGE_TYPE = vk.ffi.typeof("struct VkImage_T *")
 
-VulkanResourceType = TypeVar("VulkanResourceType")
+VulkanResourceType = typing.TypeVar("VulkanResourceType")
 
-VulkanResource = Union[
+VulkanResource = typing.Union[
     kt.Buffer,
     kt.CommandPool,
     kt.DescriptorPool,
@@ -48,7 +36,7 @@ VulkanResource = Union[
 
 
 class Queue:
-    def __init__(self, queue: Any) -> None:
+    def __init__(self, queue: typing.Any) -> None:
         self.queue = queue
 
     def submit(self, command_buffer: kt.CommandBuffer) -> None:
@@ -67,19 +55,21 @@ class VulkanContext:
     graphics_queue_family_index: int
     graphics_queue: Queue
     device: kt.Device
-    vk_bind_buffer_memory2: Callable
-    vk_bind_image_memory2: Callable
-    memory_types: Dict[kt.MemoryType, int]
-    errors: List[str]
-    allocations: Dict[object, kt.DeviceMemory]
-    resources: List[VulkanResource]
+    vk_bind_buffer_memory2: typing.Callable
+    vk_bind_image_memory2: typing.Callable
+    memory_types: typing.Dict[kt.MemoryType, int]
+    errors: typing.List[str]
+    allocations: typing.Dict[object, kt.DeviceMemory]
+    resources: typing.List[VulkanResource]
 
 
-def _add_to_resources(method: Callable) -> Callable:
+def _add_to_resources(method: typing.Callable) -> typing.Callable:
     @functools.wraps(method)
-    def wrapper(self: Any, *args: Any, **kwargs: Any) -> VulkanResourceType:
+    def wrapper(
+        self: typing.Any, *args: typing.Any, **kwargs: typing.Any
+    ) -> VulkanResourceType:
         result = method(self, *args, **kwargs)
-        if isinstance(result, list):
+        if isinstance(result, typing.List):
             self.context.resources.extend(result)
         else:
             self.context.resources.append(result)
@@ -107,8 +97,8 @@ class GraphicsApp:
         self,
         *,
         descriptor_pool: kt.DescriptorPool,
-        descriptor_set_layouts: List[kt.DescriptorSetLayout] = [],
-    ) -> List[kt.DescriptorSet]:
+        descriptor_set_layouts: typing.List[kt.DescriptorSetLayout] = [],
+    ) -> typing.List[kt.DescriptorSet]:
         return [
             kt.DescriptorSet(descriptor_set)
             for descriptor_set in vk.vkAllocateDescriptorSets(
@@ -192,7 +182,7 @@ class GraphicsApp:
         self,
         *,
         render_pass: kt.RenderPass,
-        attachments: List[object],
+        attachments: typing.List[object],
         width: int,
         height: int,
         layers: int = 1,
@@ -271,14 +261,22 @@ class GraphicsApp:
     def new_memory_set(
         self,
         *,
-        device_optimal: Optional[List[Union[kt.Buffer, kt.Image]]] = None,
-        downloadable: Optional[List[Union[kt.Buffer, kt.Image]]] = None,
-        lazily_allocated: Optional[List[Union[kt.Buffer, kt.Image]]] = None,
-        uploadable: Optional[List[Union[kt.Buffer, kt.Image]]] = None,
-        initial_values: Dict[Union[kt.Buffer, kt.Image], bytes] = {},
-    ) -> Dict[Union[kt.Buffer, kt.Image], vk.ffi.buffer]:
+        device_optimal: typing.Optional[
+            typing.List[typing.Union[kt.Buffer, kt.Image]]
+        ] = None,
+        downloadable: typing.Optional[
+            typing.List[typing.Union[kt.Buffer, kt.Image]]
+        ] = None,
+        lazily_allocated: typing.Optional[
+            typing.List[typing.Union[kt.Buffer, kt.Image]]
+        ] = None,
+        uploadable: typing.Optional[
+            typing.List[typing.Union[kt.Buffer, kt.Image]]
+        ] = None,
+        initial_values: typing.Dict[typing.Union[kt.Buffer, kt.Image], bytes] = {},
+    ) -> typing.Dict[typing.Union[kt.Buffer, kt.Image], vk.ffi.buffer]:
         def select_memory_type_index(
-            memory_requirements: Any, memory_type: kt.MemoryType
+            memory_requirements: typing.Any, memory_type: kt.MemoryType
         ) -> int:
             allowable_memory_type_indices = (
                 memory_requirements.memoryTypeBits
@@ -321,8 +319,8 @@ class GraphicsApp:
             for resource in resource_list
         }
 
-        memory_type_index_to_resources: DefaultDict[
-            int, List[Union[kt.Buffer, kt.Image]]
+        memory_type_index_to_resources: typing.DefaultDict[
+            int, typing.List[typing.Union[kt.Buffer, kt.Image]]
         ] = collections.defaultdict(list)
         for resource, memory_type_index in resource_to_memory_type_index.items():
             memory_type_index_to_resources[memory_type_index].append(resource)
@@ -449,8 +447,8 @@ class GraphicsApp:
         return mappings
 
     def delete_memory_set(
-        self, memory_set: Dict[Union[kt.Buffer, kt.Image], vk.ffi.buffer]
-    ):
+        self, memory_set: typing.Dict[typing.Union[kt.Buffer, kt.Image], vk.ffi.buffer]
+    ) -> None:
         memory_key = frozenset(memory_set.keys())
         for memory in self.context.allocations[memory_key]:
             vk.vkFreeMemory(self.context.device, memory, None)
@@ -582,7 +580,10 @@ class GraphicsApp:
 
     @_add_to_resources
     def new_pipeline_layout(
-        self, descriptor_set_layouts: Optional[List[kt.DescriptorSetLayout]] = None
+        self,
+        descriptor_set_layouts: typing.Optional[
+            typing.List[kt.DescriptorSetLayout]
+        ] = None,
     ) -> kt.PipelineLayout:
         return kt.PipelineLayout(
             vk.vkCreatePipelineLayout(
@@ -596,8 +597,8 @@ class GraphicsApp:
     def new_render_pass(
         self,
         *,
-        attachment_descriptions: List[kt.AttachmentDescription],
-        subpass_descriptions: List[kt.SubpassDescription],
+        attachment_descriptions: typing.List[kt.AttachmentDescription],
+        subpass_descriptions: typing.List[kt.SubpassDescription],
     ) -> kt.RenderPass:
         attachments = [
             vk.VkAttachmentDescription(
@@ -763,11 +764,11 @@ class GraphicsApp:
 
 
 @contextlib.contextmanager
-def run_graphics() -> Generator[GraphicsApp, None, None]:
-    errors: List[str] = []
+def run_graphics() -> typing.Generator[GraphicsApp, None, None]:
+    errors: typing.List[str] = []
 
     def _debug_callback(
-        _severity: int, _type: int, callback_data: Any, _user_data: Any
+        _severity: int, _type: int, callback_data: typing.Any, _user_data: typing.Any
     ) -> int:
         message_string = vk.ffi.string(callback_data.pMessage).decode("utf-8")
         if not errors or errors[-1] != message_string:
@@ -775,8 +776,8 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
         return 0
 
     def create_memory_types(
-        physical_device_memory_properties: Any
-    ) -> Dict[kt.MemoryType, int]:
+        physical_device_memory_properties: typing.Any
+    ) -> typing.Dict[kt.MemoryType, int]:
         memory_types = vk.ffi.unpack(
             physical_device_memory_properties.memoryTypes,
             physical_device_memory_properties.memoryTypeCount,
@@ -893,8 +894,8 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
         vk.vkGetPhysicalDeviceMemoryProperties(physical_device)
     )
 
-    allocations: Dict[object, kt.DeviceMemory] = {}
-    resources: List[VulkanResource] = []
+    allocations: typing.Dict[object, kt.DeviceMemory] = {}
+    resources: typing.List[VulkanResource] = []
 
     try:
         yield GraphicsApp(
@@ -913,8 +914,8 @@ def run_graphics() -> Generator[GraphicsApp, None, None]:
             )
         )
     finally:
-        destructors: Dict[
-            VulkanResource, Callable[[kt.Device, VulkanResource, object], None]
+        destructors: typing.Dict[
+            VulkanResource, typing.Callable[[kt.Device, VulkanResource, object], None]
         ] = {}
         for resource in resources:
             resource_type = vk.ffi.typeof(resource)
