@@ -584,11 +584,24 @@ class GraphicsApp:
         descriptor_set_layouts: typing.Optional[
             typing.List[kt.DescriptorSetLayout]
         ] = None,
+        push_constant_ranges: typing.Optional[typing.List[kt.PushConstantRange]] = None,
     ) -> kt.PipelineLayout:
+        native_push_constant_ranges = [
+            vk.VkPushConstantRange(
+                stageFlags=push_constant_range.stage,
+                offset=push_constant_range.byte_offset,
+                size=push_constant_range.byte_count,
+            )
+            for push_constant_range in (push_constant_ranges or [])
+        ]
+
         return kt.PipelineLayout(
             vk.vkCreatePipelineLayout(
                 self.context.device,
-                vk.VkPipelineLayoutCreateInfo(pSetLayouts=descriptor_set_layouts),
+                vk.VkPipelineLayoutCreateInfo(
+                    pSetLayouts=descriptor_set_layouts,
+                    pPushConstantRanges=native_push_constant_ranges,
+                ),
                 None,
             )
         )

@@ -89,6 +89,7 @@ def _render_model(
     index_buffer: kt.Buffer,
     instance_buffer: kt.Buffer,
     model: kt.gltf.Model,
+    pipeline_layout: kt.PipelineLayout,
 ):
     scene = model.scenes[0]
     for mesh_index, node_indices in enumerate(scene.mesh_index_to_node_indices):
@@ -97,6 +98,13 @@ def _render_model(
             continue
 
         for primitive in model.meshes[mesh_index]:
+            command_buffer_builder.push_constants(
+                pipeline_layout=pipeline_layout,
+                stage=kt.ShaderStage.FRAGMENT,
+                byte_offset=0,
+                values=int(primitive.material_index).to_bytes(4, "little"),
+            )
+
             command_buffer_builder.bind_vertex_buffers(
                 [attributes_buffer, attributes_buffer, instance_buffer],
                 byte_offsets=[
@@ -191,10 +199,13 @@ def create_gltf_render_resources(
     descriptor_set_layout = app.new_descriptor_set_layout(
         [
             kt.DescriptorSetLayoutBinding(
-                count=1,
                 stage=kt.ShaderStage.VERTEX,
                 descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
-            )
+            ),
+            kt.DescriptorSetLayoutBinding(
+                stage=kt.ShaderStage.FRAGMENT,
+                descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
+            ),
         ]
     )
     descriptor_pool = app.new_descriptor_pool(
@@ -234,7 +245,12 @@ def create_gltf_render_resources(
     )
 
     pipeline_layout = app.new_pipeline_layout(
-        descriptor_set_layouts=[descriptor_set_layout]
+        descriptor_set_layouts=[descriptor_set_layout],
+        push_constant_ranges=[
+            kt.PushConstantRange(
+                stage=kt.ShaderStage.FRAGMENT, byte_offset=0, byte_count=4
+            )
+        ],
     )
 
     pipeline = app.new_graphics_pipelines(
@@ -444,6 +460,23 @@ def test_gltf() -> None:
                     )
                     instance_memory = memory_set[instance_buffer]
 
+                    app.update_descriptor_sets(
+                        buffer_writes=[
+                            kt.DescriptorBufferWrites(
+                                binding=1,
+                                buffer_infos=[
+                                    kt.DescriptorBufferInfo(
+                                        buffer=materials_buffer,
+                                        byte_count=len(materials_bytes),
+                                        byte_offset=0,
+                                    )
+                                ],
+                                descriptor_set=gltf_render_resources.descriptor_sets[0],
+                                descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
+                            )
+                        ]
+                    )
+
                     flattened_node_transforms = [None] * len(model.node_transforms)
 
                     for (
@@ -586,6 +619,7 @@ def test_gltf() -> None:
                             index_buffer=index_buffer,
                             instance_buffer=instance_buffer,
                             model=model,
+                            pipeline_layout=gltf_render_resources.pipeline_layout,
                         )
 
                         command_buffer_builder.end_render_pass()

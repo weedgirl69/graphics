@@ -283,3 +283,21 @@ class CommandBufferBuilder:
                 )
             ],
         )
+
+    def push_constants(
+        self,
+        *,
+        pipeline_layout: kt.PipelineLayout,
+        stage: kt.ShaderStage,
+        byte_offset: int,
+        values: bytes,
+    ) -> None:
+        a = vk.ffi.from_buffer(values)
+        vk.vkCmdPushConstants(
+            self.command_buffer,
+            layout=pipeline_layout,
+            stageFlags=stage,
+            offset=byte_offset,
+            size=len(values),
+            pValues=a,
+        )

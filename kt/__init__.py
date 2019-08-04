@@ -151,6 +151,13 @@ class DescriptorSetLayoutBinding:
 
 
 @dataclasses.dataclass(frozen=True)
+class PushConstantRange:
+    stage: ShaderStage
+    byte_offset: int
+    byte_count: int
+
+
+@dataclasses.dataclass(frozen=True)
 class VertexAttribute:
     binding: int
     pixel_format: Format

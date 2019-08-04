@@ -33,6 +33,7 @@ class Primitive:
     count: int
     index_data: typing.Optional[IndexData]
     positions_byte_offset: int
+    material_index: int
     normals_byte_offset: typing.Optional[int]
 
 
@@ -413,6 +414,8 @@ def _get_mesh_index_to_primitives(
         else:
             count = positions_accessor_json["count"]
 
+        material_index = primitive_json.get("material", 0)
+
         positions_byte_offset = len(attributes_bytes)
         attributes_bytes.extend(accessors[positions_accessor_index])
 
@@ -425,6 +428,7 @@ def _get_mesh_index_to_primitives(
             bounds=bounds,
             count=count,
             index_data=index_data,
+            material_index=material_index,
             positions_byte_offset=positions_byte_offset,
             normals_byte_offset=normals_byte_offset,
         )

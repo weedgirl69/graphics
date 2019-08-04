@@ -1,5 +1,11 @@
 #version 450
 
+layout(push_constant) uniform PushConstants {
+  uint material_index;
+};
+layout(binding = 1) uniform Materials {
+  vec4 base_color_factor[1024];
+};
 layout(location = 0) in vec3 in_normal;
 layout(location = 1) in vec3 in_view_direction;
 layout(location = 0) out vec4 out_color;
@@ -57,7 +63,7 @@ vec3 toneMapACES(vec3 color) {
 }
 
 void main() {
-  vec3 base_color = srgb_to_linear(vec3(204., 177., 29.) / 255.);
+  vec3 base_color = base_color_factor[material_index].xyz;
   float roughness = .4;
   float metallic = .9;
   vec3 f0 = vec3(.04);
