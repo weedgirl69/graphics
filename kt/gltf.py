@@ -274,8 +274,12 @@ def _get_transform_sequence(
     node_index_to_flattened_index: typing.Dict[int, int],
 ) -> typing.List[typing.Tuple[int, int]]:
     transform_source_index_to_destination_index = []
+    visited_nodes = set()
 
     def visit(visited_node_index: int) -> None:
+        if visited_node_index in visited_nodes:
+            return
+        visited_nodes.add(visited_node_index)
         parent_index = node_index_to_parent_index[visited_node_index]
         if parent_index is not None:
             visit(parent_index)
