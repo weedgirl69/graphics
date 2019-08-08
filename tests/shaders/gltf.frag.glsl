@@ -3,7 +3,7 @@
 layout(push_constant) uniform PushConstants {
   uint material_index;
 };
-layout(binding = 1) uniform Materials {
+layout(set = 0, binding = 1) uniform Materials {
   vec4 base_color_factor[1024];
 };
 layout(location = 0) in vec3 in_normal;
