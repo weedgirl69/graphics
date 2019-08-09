@@ -1,3 +1,4 @@
+import concurrent.futures
 import pytest
 import asyncio
 import queue
@@ -319,12 +320,13 @@ class RendererResources:
         )
 
 
-async def _submission_proc(
+def _submission_proc(
     *,
     app: kt.graphics_app.GraphicsApp,
     submission_queue: queue.Queue,
     width: int,
     height: int,
+    executor: concurrent.futures.ThreadPoolExecutor,
 ):
     write_tasks = []
     while True:
@@ -337,14 +339,15 @@ async def _submission_proc(
         app.graphics_queue.submit(command_buffer)
         app.graphics_queue.wait()
 
-        async def write_image():
-            test_image_bytes = readback_buffer_memory[0 : width * height * 4]
+        test_image_bytes = readback_buffer_memory[0 : width * height * 4]
+
+        def write_image(*, path):
             golden_image_path = os.path.normpath(
                 os.path.abspath(
                     os.path.join(
                         os.path.curdir,
                         "tests/goldens",
-                        os.path.relpath(gltf_path, GLTF_SAMPLE_MODELS_DIR),
+                        os.path.relpath(path, GLTF_SAMPLE_MODELS_DIR),
                     )
                     + ".png"
                 )
@@ -356,12 +359,12 @@ async def _submission_proc(
                 png_writer = png.Writer(width, height, alpha=True)
                 png_writer.write_array(file, test_image_bytes)
 
-        write_tasks.append(asyncio.create_task(write_image()))
+        write_tasks.append(executor.submit(write_image, path=gltf_path))
         # app.delete_memory_set(memory_set)
-    await asyncio.wait(write_tasks)
+    concurrent.futures.wait(write_tasks)
 
 
-async def build_gltf_command_buffer(
+def build_gltf_command_buffer(
     *,
     app: kt.graphics_app.GraphicsApp,
     gltf_path: str,
@@ -370,7 +373,7 @@ async def build_gltf_command_buffer(
     height: int,
     renderer_resources: RendererResources,
     submission_queue: queue.Queue,
-    command_pool: kt.CommandPool,
+    command_buffer: kt.CommandBuffer,
     readback_buffer_memory: kt.vk.ffi.buffer,
     readback_buffer: kt.Buffer,
 ):
@@ -558,7 +561,6 @@ async def build_gltf_command_buffer(
 
         frame_uniform_memory[0:64] = array.array("f", view_projection).tobytes()
         frame_uniform_memory[64:76] = array.array("f", camera_position).tobytes()
-        command_buffer = app.allocate_command_buffer(command_pool)
         with kt.command_buffer_builder.CommandBufferBuilder(
             command_buffer=command_buffer, usage=kt.CommandBufferUsage.ONE_TIME_SUBMIT
         ) as command_buffer_builder:
@@ -639,8 +641,7 @@ async def build_gltf_command_buffer(
         )
 
 
-@pytest.mark.asyncio
-async def test_gltf() -> None:
+def test_gltf() -> None:
     try:
         with kt.graphics_app.run_graphics() as app:
             app: kt.graphics_app.GraphicsApp = app
@@ -671,34 +672,42 @@ async def test_gltf() -> None:
 
             submission_queue = queue.Queue(maxsize=1000)
 
-            submission_task = _submission_proc(
-                app=app, submission_queue=submission_queue, width=width, height=height
+            executor = concurrent.futures.ThreadPoolExecutor()
+
+            submission_future = executor.submit(
+                _submission_proc,
+                app=app,
+                submission_queue=submission_queue,
+                width=width,
+                height=height,
+                executor=executor,
             )
 
             tasks = [
-                asyncio.create_task(
-                    build_gltf_command_buffer(
-                        app=app,
-                        gltf_path=gltf_path,
-                        width=width,
-                        height=height,
-                        readback_buffer=readback_buffer,
-                        readback_buffer_memory=readback_buffer_memory,
-                        renderer_resources=renderer_resources,
-                        gltf_render_resources=gltf_render_resources,
-                        submission_queue=submission_queue,
-                        command_pool=command_pool,
-                    )
+                executor.submit(
+                    build_gltf_command_buffer,
+                    app=app,
+                    gltf_path=gltf_path,
+                    width=width,
+                    height=height,
+                    readback_buffer=readback_buffer,
+                    readback_buffer_memory=readback_buffer_memory,
+                    renderer_resources=renderer_resources,
+                    gltf_render_resources=gltf_render_resources,
+                    submission_queue=submission_queue,
+                    command_buffer=app.allocate_command_buffer(app.new_command_pool()),
                 )
                 for gltf_path in glob.glob(
                     os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
                 )
                 + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf"))
             ]
-            await asyncio.gather(*tasks, submission_task)
+
+            concurrent.futures.wait(tasks)
 
             submission_queue.put_nowait(None)
-            await submission_task
+
+            concurrent.futures.wait([submission_future])
     finally:
         print(app.errors)
         assert not app.errors
