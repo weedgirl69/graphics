@@ -320,16 +320,19 @@ class RendererResources:
         )
 
 
-class FencePool:
-    def __init__(self, *, app: kt.graphics_app.GraphicsApp):
-        self.app = app
+T = typing.TypeVar("T")
+
+
+class ResourcePool(typing.Generic[T]):
+    def __init__(self, *, create_resource: typing.Callable[[], T]):
+        self.create_resource = create_resource
         self.queue = queue.SimpleQueue()
 
-    def get(self) -> kt.Fence:
-        return self.app.new_fence() if self.queue.empty() else self.queue.get()
+    def get(self) -> T:
+        return self.create_resource() if self.queue.empty() else self.queue.get()
 
-    def put(self, fence: kt.Fence) -> None:
-        self.queue.put(fence)
+    def put(self, resource: T) -> None:
+        self.queue.put(resource)
 
 
 class CommandBufferSubmission:
@@ -339,12 +342,11 @@ class CommandBufferSubmission:
         app: kt.graphics_app.GraphicsApp,
         callback: typing.Callable,
         command_queue: kt.graphics_app.Queue,
-        fence_pool: FencePool,
     ) -> None:
         self.app = app
         self.callback = callback
         self.command_queue: kt.graphics_app.Queue = command_queue
-        self.fence_pool = fence_pool
+        self.fence_pool = ResourcePool(create_resource=app.new_fence)
         self.submission_queue = queue.SimpleQueue()
         self.thread = threading.Thread(
             target=CommandBufferSubmission._thread_proc, args=(self,)
@@ -435,377 +437,385 @@ def _submit_command_buffer(
     concurrent.futures.wait(write_tasks)
 
 
-def build_gltf_command_buffer(
-    *,
-    app: kt.graphics_app.GraphicsApp,
-    gltf_path: str,
-    gltf_render_resources: GltfRenderResources,
-    width: int,
-    height: int,
-    renderer_resources: RendererResources,
-    command_buffer_submission: CommandBufferSubmission,
-    command_pool_pool: queue.LifoQueue,
-):
-    print(gltf_path)
+def _load_gltf(*, gltf_path: str) -> kt.gltf.Model:
     with open(gltf_path) as gltf_file:
 
         def read_file_bytes(uri: str):
             with open(os.path.join(os.path.dirname(gltf_path), uri), "rb") as file:
                 return file.read()
 
-        readback_buffer = app.new_buffer(
-            byte_count=width * height * 4, usage=kt.BufferUsage.TRANSFER_DESTINATION
-        )
+        return kt.gltf.from_json(gltf_file, read_file_bytes)
 
-        mapped_memory = app.new_memory_set(downloadable=[readback_buffer])
-        readback_buffer_memory = mapped_memory[readback_buffer]
 
-        model = kt.gltf.from_json(gltf_file, read_file_bytes)
-        scene = model.scenes[0]
+def _build_gltf_command_buffer(
+    *,
+    app: kt.graphics_app.GraphicsApp,
+    model: kt.gltf.Model,
+    gltf_render_resources: GltfRenderResources,
+    width: int,
+    height: int,
+    renderer_resources: RendererResources,
+    command_buffer_pool: ResourcePool[kt.CommandBuffer],
+):
+    readback_buffer = app.new_buffer(
+        byte_count=width * height * 4, usage=kt.BufferUsage.TRANSFER_DESTINATION
+    )
+    mapped_memory = app.new_memory_set(downloadable=[readback_buffer])
+    readback_buffer_memory = mapped_memory[readback_buffer]
 
-        materials_bytes = array.array(
-            "f",
-            [1, 1, 1, 1]
-            + [
-                component
-                for material in model.materials
-                for component in material.base_color_factor
-            ],
-        ).tobytes()
-        upload_buffer_byte_count = (
-            len(model.indices_bytes)
-            + len(model.attributes_bytes)
-            + len(materials_bytes)
-        )
-        upload_buffer = app.new_buffer(
-            byte_count=upload_buffer_byte_count, usage=kt.BufferUsage.TRANSFER_SOURCE
-        )
-        materials_buffer = app.new_buffer(
-            byte_count=len(materials_bytes),
-            usage=kt.BufferUsage.UNIFORM | kt.BufferUsage.TRANSFER_DESTINATION,
-        )
-        index_buffer = (
-            app.new_buffer(
-                byte_count=len(model.indices_bytes),
-                usage=kt.BufferUsage.INDEX | kt.BufferUsage.TRANSFER_DESTINATION,
-            )
-            if model.indices_bytes
-            else None
-        )
-        instance_capacity = max(
-            sum(
-                len(node_indices)
-                for node_indices in scene.mesh_index_to_node_indices
-                if node_indices
-            )
-            for scene in model.scenes
-        )
-        instance_buffer = app.new_buffer(
-            byte_count=instance_capacity * 3 * 4 * 4, usage=kt.BufferUsage.VERTEX
-        )
-        attributes_buffer = app.new_buffer(
-            byte_count=len(model.attributes_bytes),
-            usage=kt.BufferUsage.VERTEX | kt.BufferUsage.TRANSFER_DESTINATION,
-        )
+    scene = model.scenes[0]
 
-        frame_uniform_byte_count = 4 * 4 * 4 + 4 * 4
-        frame_uniform_buffer = app.new_buffer(
-            byte_count=frame_uniform_byte_count, usage=kt.BufferUsage.UNIFORM
+    materials_bytes = array.array(
+        "f",
+        [1, 1, 1, 1]
+        + [
+            component
+            for material in model.materials
+            for component in material.base_color_factor
+        ],
+    ).tobytes()
+    upload_buffer_byte_count = (
+        len(model.indices_bytes) + len(model.attributes_bytes) + len(materials_bytes)
+    )
+    upload_buffer = app.new_buffer(
+        byte_count=upload_buffer_byte_count, usage=kt.BufferUsage.TRANSFER_SOURCE
+    )
+    materials_buffer = app.new_buffer(
+        byte_count=len(materials_bytes),
+        usage=kt.BufferUsage.UNIFORM | kt.BufferUsage.TRANSFER_DESTINATION,
+    )
+    index_buffer = (
+        app.new_buffer(
+            byte_count=len(model.indices_bytes),
+            usage=kt.BufferUsage.INDEX | kt.BufferUsage.TRANSFER_DESTINATION,
         )
+        if model.indices_bytes
+        else None
+    )
+    instance_capacity = sum(
+        len(node_indices)
+        for node_indices in scene.mesh_index_to_node_indices
+        if node_indices
+    )
+    instance_buffer = app.new_buffer(
+        byte_count=instance_capacity * 3 * 4 * 4, usage=kt.BufferUsage.VERTEX
+    )
+    attributes_buffer = app.new_buffer(
+        byte_count=len(model.attributes_bytes),
+        usage=kt.BufferUsage.VERTEX | kt.BufferUsage.TRANSFER_DESTINATION,
+    )
+    frame_uniform_byte_count = 4 * 4 * 4 + 4 * 4
+    frame_uniform_buffer = app.new_buffer(
+        byte_count=frame_uniform_byte_count, usage=kt.BufferUsage.UNIFORM
+    )
 
-        memory_set = app.new_memory_set(
-            device_optimal=[materials_buffer]
-            + ([index_buffer] if index_buffer else [])
-            + ([attributes_buffer] if attributes_buffer else []),
-            uploadable=[upload_buffer, instance_buffer, frame_uniform_buffer],
-            initial_values={
-                upload_buffer: model.indices_bytes
-                + model.attributes_bytes
-                + materials_bytes
-            },
-        )
-        instance_memory = memory_set[instance_buffer]
-        frame_uniform_memory = memory_set[frame_uniform_buffer]
+    memory_set = app.new_memory_set(
+        device_optimal=[materials_buffer]
+        + ([index_buffer] if index_buffer else [])
+        + ([attributes_buffer] if attributes_buffer else []),
+        uploadable=[upload_buffer, instance_buffer, frame_uniform_buffer],
+        initial_values={
+            upload_buffer: model.indices_bytes
+            + model.attributes_bytes
+            + materials_bytes
+        },
+    )
+    instance_memory = memory_set[instance_buffer]
+    frame_uniform_memory = memory_set[frame_uniform_buffer]
 
-        descriptor_pool = app.new_descriptor_pool(
-            max_set_count=1,
-            descriptor_type_counts={kt.DescriptorType.UNIFORM_BUFFER: 2},
-        )
-        descriptor_sets = app.allocate_descriptor_sets(
-            descriptor_pool=descriptor_pool,
-            descriptor_set_layouts=[gltf_render_resources.descriptor_set_layout],
-        )
-        app.update_descriptor_sets(
-            buffer_writes=[
-                kt.DescriptorBufferWrites(
-                    binding=0,
-                    buffer_infos=[
-                        kt.DescriptorBufferInfo(
-                            buffer=frame_uniform_buffer,
-                            byte_count=frame_uniform_byte_count,
-                            byte_offset=0,
-                        )
-                    ],
-                    descriptor_set=descriptor_sets[0],
-                    descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
-                ),
-                kt.DescriptorBufferWrites(
-                    binding=1,
-                    buffer_infos=[
-                        kt.DescriptorBufferInfo(
-                            buffer=materials_buffer,
-                            byte_count=len(materials_bytes),
-                            byte_offset=0,
-                        )
-                    ],
-                    descriptor_set=descriptor_sets[0],
-                    descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
-                ),
-            ]
-        )
-
-        flattened_node_transforms = [None] * len(model.node_transforms)
-
-        for (
-            node_index,
-            flattened_index,
-        ) in scene.node_index_to_flattened_index.items():
-            flattened_node_transforms[flattened_index] = model.node_transforms[
-                node_index
-            ]
-
-        transform_sequence = scene.transform_source_index_to_destination_index
-
-        apply_transform_sequence(
-            node_transforms=flattened_node_transforms,
-            transform_sequence=transform_sequence,
-        )
-
-        bounds_center, radius = model.get_bounds(
-            node_transforms=flattened_node_transforms, scene_index=0
-        )
-
-        scene_instance_count = sum(
-            len(node_indices) for node_indices in scene.mesh_index_to_node_indices
-        )
-        transform_bytes = array.array(
-            "f",
-            (
-                component
-                for transform in flattened_node_transforms[:scene_instance_count]
-                for component in transform
+    descriptor_pool = app.new_descriptor_pool(
+        max_set_count=1, descriptor_type_counts={kt.DescriptorType.UNIFORM_BUFFER: 2}
+    )
+    descriptor_sets = app.allocate_descriptor_sets(
+        descriptor_pool=descriptor_pool,
+        descriptor_set_layouts=[gltf_render_resources.descriptor_set_layout],
+    )
+    app.update_descriptor_sets(
+        buffer_writes=[
+            kt.DescriptorBufferWrites(
+                binding=0,
+                buffer_infos=[
+                    kt.DescriptorBufferInfo(
+                        buffer=frame_uniform_buffer,
+                        byte_count=frame_uniform_byte_count,
+                        byte_offset=0,
+                    )
+                ],
+                descriptor_set=descriptor_sets[0],
+                descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
             ),
-        ).tobytes()
-        instance_memory[: len(transform_bytes)] = transform_bytes
+            kt.DescriptorBufferWrites(
+                binding=1,
+                buffer_infos=[
+                    kt.DescriptorBufferInfo(
+                        buffer=materials_buffer,
+                        byte_count=len(materials_bytes),
+                        byte_offset=0,
+                    )
+                ],
+                descriptor_set=descriptor_sets[0],
+                descriptor_type=kt.DescriptorType.UNIFORM_BUFFER,
+            ),
+        ]
+    )
 
-        far = radius * 3.01
-        near = radius * 0.99
-        camera_position = (
-            bounds_center[0],
-            bounds_center[1],
-            bounds_center[2] + radius * 2,
-        )
-        view_direction = (0, 0, 1)
-        right = normalize(cross((0, 1, 0), view_direction))
-        up = cross(view_direction, right)
+    flattened_node_transforms = [None] * len(model.node_transforms)
 
-        projection = (
-            1.5,
-            0,
-            0,
-            0,
-            0,
-            -1.5,
-            0,
-            0,
-            0,
-            0,
-            far / (near - far),
-            (near * far) / (near - far),
-            0,
-            0,
-            -1,
-            0,
-        )
-        view = (
-            *(*right, -dot(right, camera_position)),
-            *(*up, -dot(up, camera_position)),
-            *(*view_direction, -dot(view_direction, camera_position)),
-            *(0, 0, 0, 1),
-        )
-        view_projection = matrix_multiply(view, projection)
+    for node_index, flattened_index in scene.node_index_to_flattened_index.items():
+        flattened_node_transforms[flattened_index] = model.node_transforms[node_index]
 
-        frame_uniform_memory[0:64] = array.array("f", view_projection).tobytes()
-        frame_uniform_memory[64:76] = array.array("f", camera_position).tobytes()
+    apply_transform_sequence(
+        node_transforms=flattened_node_transforms,
+        transform_sequence=scene.transform_source_index_to_destination_index,
+    )
 
-        command_buffer = command_pool_pool.get()
-        app.reset_command_buffer(command_buffer)
+    bounds_center, radius = model.get_bounds(
+        node_transforms=flattened_node_transforms, scene_index=0
+    )
 
-        with kt.command_buffer_builder.CommandBufferBuilder(
-            command_buffer=command_buffer, usage=kt.CommandBufferUsage.ONE_TIME_SUBMIT
-        ) as command_buffer_builder:
-            if index_buffer:
-                command_buffer_builder.copy_buffer_to_buffer(
-                    source_buffer=upload_buffer,
-                    destination_buffer=index_buffer,
-                    byte_count=len(model.indices_bytes),
-                )
+    scene_instance_count = sum(
+        len(node_indices) for node_indices in scene.mesh_index_to_node_indices
+    )
+    transform_bytes = array.array(
+        "f",
+        (
+            component
+            for transform in flattened_node_transforms[:scene_instance_count]
+            for component in transform
+        ),
+    ).tobytes()
+    instance_memory[: len(transform_bytes)] = transform_bytes
+
+    far = radius * 3.01
+    near = radius * 0.99
+    camera_position = (
+        bounds_center[0],
+        bounds_center[1],
+        bounds_center[2] + radius * 2,
+    )
+    view_direction = (0, 0, 1)
+    right = normalize(cross((0, 1, 0), view_direction))
+    up = cross(view_direction, right)
+
+    projection = (
+        1.5,
+        0,
+        0,
+        0,
+        0,
+        -1.5,
+        0,
+        0,
+        0,
+        0,
+        far / (near - far),
+        (near * far) / (near - far),
+        0,
+        0,
+        -1,
+        0,
+    )
+    view = (
+        *(*right, -dot(right, camera_position)),
+        *(*up, -dot(up, camera_position)),
+        *(*view_direction, -dot(view_direction, camera_position)),
+        *(0, 0, 0, 1),
+    )
+    view_projection = matrix_multiply(view, projection)
+
+    frame_uniform_memory[0:64] = array.array("f", view_projection).tobytes()
+    frame_uniform_memory[64:76] = array.array("f", camera_position).tobytes()
+
+    command_buffer = command_buffer_pool.get()
+    app.reset_command_buffer(command_buffer)
+
+    with kt.command_buffer_builder.CommandBufferBuilder(
+        command_buffer=command_buffer, usage=kt.CommandBufferUsage.ONE_TIME_SUBMIT
+    ) as command_buffer_builder:
+        if index_buffer:
             command_buffer_builder.copy_buffer_to_buffer(
-                byte_count=len(model.attributes_bytes),
-                destination_buffer=attributes_buffer,
                 source_buffer=upload_buffer,
-                source_offset=len(model.indices_bytes),
+                destination_buffer=index_buffer,
+                byte_count=len(model.indices_bytes),
             )
-            command_buffer_builder.copy_buffer_to_buffer(
-                byte_count=len(materials_bytes),
-                destination_buffer=materials_buffer,
-                source_buffer=upload_buffer,
-                source_offset=len(model.indices_bytes) + len(model.attributes_bytes),
-            )
-
-            command_buffer_builder.bind_descriptor_sets(
-                pipeline_layout=gltf_render_resources.pipeline_layout,
-                descriptor_sets=[descriptor_sets[0]],
-            )
-            command_buffer_builder.bind_pipeline(gltf_render_resources.pipeline)
-
-            command_buffer_builder.begin_render_pass(
-                render_pass=renderer_resources.render_pass,
-                framebuffer=renderer_resources.framebuffer,
-                clear_values=[kt.ClearColor(1.0, 0.0, 1.0, 1.0), kt.ClearDepth(1.0)],
-                width=width * 2,
-                height=height * 2,
-            )
-
-            _render_model(
-                attributes_buffer=attributes_buffer,
-                command_buffer_builder=command_buffer_builder,
-                index_buffer=index_buffer,
-                instance_buffer=instance_buffer,
-                model=model,
-                pipeline_layout=gltf_render_resources.pipeline_layout,
-            )
-
-            command_buffer_builder.end_render_pass()
-
-            command_buffer_builder.pipeline_barrier(
-                image=renderer_resources.downsampled_target_image,
-                new_layout=kt.ImageLayout.TRANSFER_DESTINATION,
-            )
-
-            command_buffer_builder.blit_image(
-                source_image=renderer_resources.resolve_target_image,
-                source_width=width * 2,
-                source_height=height * 2,
-                destination_image=renderer_resources.downsampled_target_image,
-                destination_width=width,
-                destination_height=height,
-            )
-
-            command_buffer_builder.pipeline_barrier(
-                image=renderer_resources.downsampled_target_image,
-                mip_count=1,
-                old_layout=kt.ImageLayout.TRANSFER_DESTINATION,
-                new_layout=kt.ImageLayout.TRANSFER_SOURCE,
-            )
-
-            command_buffer_builder.copy_image_to_buffer(
-                image=renderer_resources.downsampled_target_image,
-                buffer=readback_buffer,
-                width=width,
-                height=height,
-            )
-        command_buffer_submission.submit(
-            command_buffer(
-                command_buffer, memory_set, readback_buffer_memory, gltf_path
-            )
+        command_buffer_builder.copy_buffer_to_buffer(
+            byte_count=len(model.attributes_bytes),
+            destination_buffer=attributes_buffer,
+            source_buffer=upload_buffer,
+            source_offset=len(model.indices_bytes),
         )
+        command_buffer_builder.copy_buffer_to_buffer(
+            byte_count=len(materials_bytes),
+            destination_buffer=materials_buffer,
+            source_buffer=upload_buffer,
+            source_offset=len(model.indices_bytes) + len(model.attributes_bytes),
+        )
+
+        command_buffer_builder.bind_descriptor_sets(
+            pipeline_layout=gltf_render_resources.pipeline_layout,
+            descriptor_sets=[descriptor_sets[0]],
+        )
+        command_buffer_builder.bind_pipeline(gltf_render_resources.pipeline)
+
+        command_buffer_builder.begin_render_pass(
+            render_pass=renderer_resources.render_pass,
+            framebuffer=renderer_resources.framebuffer,
+            clear_values=[kt.ClearColor(1.0, 0.0, 1.0, 1.0), kt.ClearDepth(1.0)],
+            width=width * 2,
+            height=height * 2,
+        )
+
+        _render_model(
+            attributes_buffer=attributes_buffer,
+            command_buffer_builder=command_buffer_builder,
+            index_buffer=index_buffer,
+            instance_buffer=instance_buffer,
+            model=model,
+            pipeline_layout=gltf_render_resources.pipeline_layout,
+        )
+
+        command_buffer_builder.end_render_pass()
+
+        command_buffer_builder.pipeline_barrier(
+            image=renderer_resources.downsampled_target_image,
+            new_layout=kt.ImageLayout.TRANSFER_DESTINATION,
+        )
+
+        command_buffer_builder.blit_image(
+            source_image=renderer_resources.resolve_target_image,
+            source_width=width * 2,
+            source_height=height * 2,
+            destination_image=renderer_resources.downsampled_target_image,
+            destination_width=width,
+            destination_height=height,
+        )
+
+        command_buffer_builder.pipeline_barrier(
+            image=renderer_resources.downsampled_target_image,
+            mip_count=1,
+            old_layout=kt.ImageLayout.TRANSFER_DESTINATION,
+            new_layout=kt.ImageLayout.TRANSFER_SOURCE,
+        )
+
+        command_buffer_builder.copy_image_to_buffer(
+            image=renderer_resources.downsampled_target_image,
+            buffer=readback_buffer,
+            width=width,
+            height=height,
+        )
+    x = 0
+    for a in range(1000000):
+        x = x + 1
+    return command_buffer
+
+
+import cython
 
 
 def test_gltf() -> None:
-    try:
-        with kt.graphics_app.run_graphics() as app:
-            app: kt.graphics_app.GraphicsApp = app
-            sample_count = 3
-            width = 1024
-            height = 1024
+    with cython.nogil:
+        gltf_paths = glob.glob(
+            os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
+        ) + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf"))
 
-            renderer_resources = RendererResources(
-                app=app, width=width, height=height, sample_count=sample_count
-            )
+        load_gltf_executor = concurrent.futures.ThreadPoolExecutor()  # max_workers=1)
+        model_futures = [
+            # load_gltf_executor.submit(_load_gltf, gltf_path=gltf_path)
+            _load_gltf(gltf_path=gltf_path)
+            for gltf_path in gltf_paths
+        ]
 
-            gltf_render_resources = GltfRenderResources(
-                app=app,
-                width=width,
-                height=height,
-                render_pass=renderer_resources.render_pass,
-                sample_count=sample_count,
-            )
+        try:
+            with kt.graphics_app.run_graphics(debug=False) as app:
+                app: kt.graphics_app.GraphicsApp = app
+                sample_count = 3
+                width = 1024
+                height = 1024
 
-            def command_buffer_submission_callback(command_buffer: kt.CommandBuffer):
-                pass
-
-            fence_pool = FencePool(app=app)
-
-            command_buffer_submission = CommandBufferSubmission(
-                app=app,
-                callback=command_buffer_submission_callback,
-                command_queue=app.graphics_queue,
-                fence_pool=fence_pool,
-            )
-
-            submission_queue = queue.Queue(maxsize=1000)
-
-            max_command_buffer_builder_count = (os.cpu_count() or 1) * 2
-            executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=max_command_buffer_builder_count
-            )
-
-            command_pool_pool = queue.LifoQueue(
-                maxsize=max_command_buffer_builder_count
-            )
-
-            for _ in range(command_pool_pool.maxsize):
-                command_pool = app.new_command_pool(
-                    kt.CommandPoolFlags.RESET | kt.CommandPoolFlags.TRANSIENT
+                renderer_resources = RendererResources(
+                    app=app, width=width, height=height, sample_count=sample_count
                 )
-                command_buffer = app.allocate_command_buffer(command_pool)
-                command_pool_pool.put(command_buffer)
 
-            submission_future = executor.submit(
-                _submission_proc,
-                app=app,
-                submission_queue=submission_queue,
-                width=width,
-                height=height,
-                executor=executor,
-                command_pool_pool=command_pool_pool,
-            )
-
-            tasks = [
-                executor.submit(
-                    build_gltf_command_buffer,
+                gltf_render_resources = GltfRenderResources(
                     app=app,
-                    gltf_path=gltf_path,
                     width=width,
                     height=height,
-                    renderer_resources=renderer_resources,
-                    gltf_render_resources=gltf_render_resources,
-                    submission_queue=submission_queue,
-                    command_pool_pool=command_pool_pool,
+                    render_pass=renderer_resources.render_pass,
+                    sample_count=sample_count,
                 )
-                for gltf_path in glob.glob(
-                    os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
+
+                def command_buffer_submission_callback(
+                    command_buffer: kt.CommandBuffer
+                ):
+                    pass
+
+                command_buffer_submission = CommandBufferSubmission(
+                    app=app,
+                    callback=command_buffer_submission_callback,
+                    command_queue=app.graphics_queue,
                 )
-                + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf"))
-            ]
 
-            concurrent.futures.wait(tasks)
+                command_buffer_builder_count = (os.cpu_count() or 1) * 2
+                build_command_buffer_executor = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=command_buffer_builder_count
+                )
 
-            submission_queue.put_nowait(None)
+                def create_command_buffer():
+                    command_pool = app.new_command_pool(
+                        kt.CommandPoolFlags.RESET | kt.CommandPoolFlags.TRANSIENT
+                    )
+                    return app.allocate_command_buffer(command_pool)
 
-            concurrent.futures.wait([submission_future])
-            command_buffer_submission.join()
-    finally:
-        print(app.errors)
-        assert not app.errors
+                command_buffer_pool = ResourcePool(
+                    create_resource=create_command_buffer
+                )
+
+                def on_build_command_buffer(command_buffer_future):
+                    command_buffer = command_buffer_future.result()
+                    command_buffer_pool.put(command_buffer)
+
+                for (
+                    model_future
+                ) in model_futures:  # concurrent.futures.as_completed(model_futures):
+                    model: kt.gltf.Model = model_future  # .result()
+                    build_command_buffer_executor.submit(
+                        # on_build_command_buffer(
+                        _build_gltf_command_buffer,
+                        app=app,
+                        model=model,
+                        width=width,
+                        height=height,
+                        gltf_render_resources=gltf_render_resources,
+                        renderer_resources=renderer_resources,
+                        command_buffer_pool=command_buffer_pool,
+                    ).add_done_callback(on_build_command_buffer)
+                build_command_buffer_executor.shutdown()
+                # tasks = [
+                #     executor.submit(
+                #         build_gltf_command_buffer,
+                #         app=app,
+                #         gltf_path=gltf_path,
+                #         width=width,
+                #         height=height,
+                #         renderer_resources=renderer_resources,
+                #         gltf_render_resources=gltf_render_resources,
+                #         submission_queue=submission_queue,
+                #         command_pool_pool=command_pool_pool,
+                #     )
+                #     for gltf_path in glob.glob(
+                #         os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
+                #     )
+                #     + glob.glob(os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF/*.gltf"))
+                # ]
+                #
+                # concurrent.futures.wait(tasks)
+                #
+                # submission_queue.put_nowait(None)
+                #
+                # concurrent.futures.wait([submission_future])
+                # command_buffer_submission.join()
+        except:
+            assert False
+        finally:
+            print(app.errors)
+            assert not app.errors

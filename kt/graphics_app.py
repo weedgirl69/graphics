@@ -10,8 +10,6 @@ import shaderc
 import kt
 
 
-INSTANCE_EXTENSIONS = ["VK_EXT_debug_utils"]
-INSTANCE_LAYERS = ["VK_LAYER_LUNARG_standard_validation"]
 DEVICE_EXTENSIONS = ["VK_KHR_bind_memory2"]
 
 BUFFER_TYPE = vk.ffi.typeof("struct VkBuffer_T *")
@@ -798,7 +796,14 @@ class GraphicsApp:
 
 
 @contextlib.contextmanager
-def run_graphics() -> typing.Generator[GraphicsApp, None, None]:
+def run_graphics(*, debug: bool = True) -> typing.Generator[GraphicsApp, None, None]:
+    if debug:
+        INSTANCE_EXTENSIONS = ["VK_EXT_debug_utils"]
+        INSTANCE_LAYERS = ["VK_LAYER_LUNARG_standard_validation"]
+    else:
+        INSTANCE_EXTENSIONS = []
+        INSTANCE_LAYERS = []
+
     errors: typing.List[str] = []
 
     def _debug_callback(
@@ -850,13 +855,17 @@ def run_graphics() -> typing.Generator[GraphicsApp, None, None]:
             kt.MemoryType.LazilyAllocated: lazily_allocated,
         }
 
-    debug_utils_messenger_create_info = vk.VkDebugUtilsMessengerCreateInfoEXT(
-        messageSeverity=vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
-        | vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
-        messageType=vk.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-        | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
-        | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
-        pfnUserCallback=_debug_callback,
+    debug_utils_messenger_create_info = (
+        vk.VkDebugUtilsMessengerCreateInfoEXT(
+            messageSeverity=vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT,
+            messageType=vk.VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT
+            | vk.VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT,
+            pfnUserCallback=_debug_callback,
+        )
+        if debug
+        else None
     )
     instance = vk.vkCreateInstance(
         vk.VkInstanceCreateInfo(
@@ -874,9 +883,13 @@ def run_graphics() -> typing.Generator[GraphicsApp, None, None]:
         None,
     )
 
-    debug_utils_messenger = vk.vkGetInstanceProcAddr(
-        instance, "vkCreateDebugUtilsMessengerEXT"
-    )(instance, debug_utils_messenger_create_info, None)
+    debug_utils_messenger = (
+        vk.vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT")(
+            instance, debug_utils_messenger_create_info, None
+        )
+        if debug
+        else None
+    )
 
     physical_devices = vk.vkEnumeratePhysicalDevices(instance)
     physical_devices_properties = [
@@ -966,7 +979,8 @@ def run_graphics() -> typing.Generator[GraphicsApp, None, None]:
             vk.vkFreeMemory(device, memory, None)
 
         vk.vkDestroyDevice(device, None)
-        vk.vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")(
-            instance, debug_utils_messenger, None
-        )
+        if debug:
+            vk.vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")(
+                instance, debug_utils_messenger, None
+            )
         vk.vkDestroyInstance(instance, None)
