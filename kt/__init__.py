@@ -12,6 +12,7 @@ DescriptorSet = typing.NewType("DescriptorSet", object)
 DescriptorSetLayout = typing.NewType("DescriptorSetLayout", object)
 Device = typing.NewType("Device", object)
 DeviceMemory = typing.NewType("DeviceMemory", object)
+Fence = typing.NewType("Fence", object)
 Framebuffer = typing.NewType("Framebuffer", object)
 Image = typing.NewType("Image", object)
 ImageView = typing.NewType("ImageView", object)
@@ -32,6 +33,11 @@ class BufferUsage(IntEnum):
     TRANSFER_SOURCE = vk.VK_BUFFER_USAGE_TRANSFER_SRC_BIT
     UNIFORM = vk.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
     VERTEX = vk.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+
+
+class CommandPoolFlags(IntEnum):
+    RESET = vk.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
+    TRANSIENT = vk.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT
 
 
 class CommandBufferUsage(IntEnum):

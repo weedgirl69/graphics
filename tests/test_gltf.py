@@ -320,14 +320,63 @@ class RendererResources:
         )
 
 
-def _submission_proc(
+class FencePool:
+    def __init__(self, *, app: kt.graphics_app.GraphicsApp):
+        self.app = app
+        self.queue = queue.SimpleQueue()
+
+    def get(self) -> kt.Fence:
+        return self.app.new_fence() if self.queue.empty() else self.queue.get()
+
+    def put(self, fence: kt.Fence) -> None:
+        self.queue.put(fence)
+
+
+class CommandBufferSubmission:
+    def __init__(
+        self,
+        *,
+        app: kt.graphics_app.GraphicsApp,
+        callback: typing.Callable,
+        command_queue: kt.graphics_app.Queue,
+        fence_pool: FencePool,
+    ) -> None:
+        self.app = app
+        self.callback = callback
+        self.command_queue: kt.graphics_app.Queue = command_queue
+        self.fence_pool = fence_pool
+        self.submission_queue = queue.SimpleQueue()
+        self.thread = threading.Thread(
+            target=CommandBufferSubmission._thread_proc, args=(self,)
+        )
+
+    def join(self) -> None:
+        self.submission_queue.put(None)
+        self.thread.join()
+
+    def submit(self, command_buffer: kt.CommandBuffer) -> None:
+        fence = self.fence_pool.get()
+        self.command_queue.submit(command_buffer=command_buffer, fence=fence)
+        self.submission_queue.put((fence, command_buffer))
+
+    def _thread_proc(self) -> None:
+        while True:
+            item = self.submission_queue.get()
+            if item is None:
+                break
+
+            command_buffer, fence = item
+            self.app.wait_for_fences([fence])
+            self.callback(command_buffer)
+
+
+def _submit_command_buffer(
     *,
     app: kt.graphics_app.GraphicsApp,
-    submission_queue: queue.Queue,
-    width: int,
-    height: int,
     executor: concurrent.futures.ThreadPoolExecutor,
+    on_finish: typing.Callable,
 ):
+    fence_pool = queue.SimpleQueue()
     write_tasks = []
     while True:
         item = submission_queue.get()
@@ -336,12 +385,26 @@ def _submission_proc(
 
         command_buffer, memory_set, readback_buffer_memory, gltf_path = item
 
-        app.graphics_queue.submit(command_buffer)
-        app.graphics_queue.wait()
+        fence = app.new_fence() if fence_pool.empty() else fence_pool.get()
 
-        test_image_bytes = readback_buffer_memory[0 : width * height * 4]
+        app.graphics_queue.submit(command_buffer, fence)
 
-        def write_image(*, path):
+        def completion_proc(
+            app: kt.graphics_app.GraphicsApp,
+            fence: kt.Fence,
+            command_buffer: kt.CommandBuffer,
+        ):
+            app.wait_for_fences([fence])
+            fence_pool.put(fence)
+            on_finish()
+
+        def write_image(*, path, fence, readback_buffer_memory, command_buffer):
+
+            app.wait_for_fences([fence])
+
+            test_image_bytes = readback_buffer_memory[0 : width * height * 4]
+            command_pool_pool.put(command_buffer)
+
             golden_image_path = os.path.normpath(
                 os.path.abspath(
                     os.path.join(
@@ -352,14 +415,22 @@ def _submission_proc(
                     + ".png"
                 )
             )
-
             os.makedirs(os.path.dirname(golden_image_path), exist_ok=True)
 
             with open(golden_image_path, "wb") as file:
                 png_writer = png.Writer(width, height, alpha=True)
                 png_writer.write_array(file, test_image_bytes)
 
-        write_tasks.append(executor.submit(write_image, path=gltf_path))
+        # write_image(path=gltf_path)
+        write_tasks.append(
+            executor.submit(
+                write_image,
+                path=gltf_path,
+                fence=fence,
+                command_buffer=command_buffer,
+                readback_buffer_memory=readback_buffer_memory,
+            )
+        )
         # app.delete_memory_set(memory_set)
     concurrent.futures.wait(write_tasks)
 
@@ -372,10 +443,8 @@ def build_gltf_command_buffer(
     width: int,
     height: int,
     renderer_resources: RendererResources,
-    submission_queue: queue.Queue,
-    command_buffer: kt.CommandBuffer,
-    readback_buffer_memory: kt.vk.ffi.buffer,
-    readback_buffer: kt.Buffer,
+    command_buffer_submission: CommandBufferSubmission,
+    command_pool_pool: queue.LifoQueue,
 ):
     print(gltf_path)
     with open(gltf_path) as gltf_file:
@@ -383,6 +452,13 @@ def build_gltf_command_buffer(
         def read_file_bytes(uri: str):
             with open(os.path.join(os.path.dirname(gltf_path), uri), "rb") as file:
                 return file.read()
+
+        readback_buffer = app.new_buffer(
+            byte_count=width * height * 4, usage=kt.BufferUsage.TRANSFER_DESTINATION
+        )
+
+        mapped_memory = app.new_memory_set(downloadable=[readback_buffer])
+        readback_buffer_memory = mapped_memory[readback_buffer]
 
         model = kt.gltf.from_json(gltf_file, read_file_bytes)
         scene = model.scenes[0]
@@ -561,6 +637,10 @@ def build_gltf_command_buffer(
 
         frame_uniform_memory[0:64] = array.array("f", view_projection).tobytes()
         frame_uniform_memory[64:76] = array.array("f", camera_position).tobytes()
+
+        command_buffer = command_pool_pool.get()
+        app.reset_command_buffer(command_buffer)
+
         with kt.command_buffer_builder.CommandBufferBuilder(
             command_buffer=command_buffer, usage=kt.CommandBufferUsage.ONE_TIME_SUBMIT
         ) as command_buffer_builder:
@@ -635,9 +715,10 @@ def build_gltf_command_buffer(
                 width=width,
                 height=height,
             )
-
-        submission_queue.put(
-            (command_buffer, memory_set, readback_buffer_memory, gltf_path)
+        command_buffer_submission.submit(
+            command_buffer(
+                command_buffer, memory_set, readback_buffer_memory, gltf_path
+            )
         )
 
 
@@ -653,13 +734,6 @@ def test_gltf() -> None:
                 app=app, width=width, height=height, sample_count=sample_count
             )
 
-            readback_buffer = app.new_buffer(
-                byte_count=width * height * 4, usage=kt.BufferUsage.TRANSFER_DESTINATION
-            )
-
-            mapped_memory = app.new_memory_set(downloadable=[readback_buffer])
-            readback_buffer_memory = mapped_memory[readback_buffer]
-
             gltf_render_resources = GltfRenderResources(
                 app=app,
                 width=width,
@@ -668,11 +742,35 @@ def test_gltf() -> None:
                 sample_count=sample_count,
             )
 
-            command_pool = app.new_command_pool()
+            def command_buffer_submission_callback(command_buffer: kt.CommandBuffer):
+                pass
+
+            fence_pool = FencePool(app=app)
+
+            command_buffer_submission = CommandBufferSubmission(
+                app=app,
+                callback=command_buffer_submission_callback,
+                command_queue=app.graphics_queue,
+                fence_pool=fence_pool,
+            )
 
             submission_queue = queue.Queue(maxsize=1000)
 
-            executor = concurrent.futures.ThreadPoolExecutor()
+            max_command_buffer_builder_count = (os.cpu_count() or 1) * 2
+            executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_command_buffer_builder_count
+            )
+
+            command_pool_pool = queue.LifoQueue(
+                maxsize=max_command_buffer_builder_count
+            )
+
+            for _ in range(command_pool_pool.maxsize):
+                command_pool = app.new_command_pool(
+                    kt.CommandPoolFlags.RESET | kt.CommandPoolFlags.TRANSIENT
+                )
+                command_buffer = app.allocate_command_buffer(command_pool)
+                command_pool_pool.put(command_buffer)
 
             submission_future = executor.submit(
                 _submission_proc,
@@ -681,6 +779,7 @@ def test_gltf() -> None:
                 width=width,
                 height=height,
                 executor=executor,
+                command_pool_pool=command_pool_pool,
             )
 
             tasks = [
@@ -690,12 +789,10 @@ def test_gltf() -> None:
                     gltf_path=gltf_path,
                     width=width,
                     height=height,
-                    readback_buffer=readback_buffer,
-                    readback_buffer_memory=readback_buffer_memory,
                     renderer_resources=renderer_resources,
                     gltf_render_resources=gltf_render_resources,
                     submission_queue=submission_queue,
-                    command_buffer=app.allocate_command_buffer(app.new_command_pool()),
+                    command_pool_pool=command_pool_pool,
                 )
                 for gltf_path in glob.glob(
                     os.path.join(GLTF_SAMPLE_MODELS_DIR, "2.0/*/glTF-Embedded/*.gltf")
@@ -708,6 +805,7 @@ def test_gltf() -> None:
             submission_queue.put_nowait(None)
 
             concurrent.futures.wait([submission_future])
+            command_buffer_submission.join()
     finally:
         print(app.errors)
         assert not app.errors

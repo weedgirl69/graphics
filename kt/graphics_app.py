@@ -39,9 +39,11 @@ class Queue:
     def __init__(self, queue: typing.Any) -> None:
         self.queue = queue
 
-    def submit(self, command_buffer: kt.CommandBuffer) -> None:
+    def submit(
+        self, command_buffer: kt.CommandBuffer, fence: typing.Optional[kt.Fence] = None
+    ) -> None:
         vk.vkQueueSubmit(
-            self.queue, 1, [vk.VkSubmitInfo(pCommandBuffers=[command_buffer])], None
+            self.queue, 1, [vk.VkSubmitInfo(pCommandBuffers=[command_buffer])], fence
         )
 
     def wait(self) -> None:
@@ -122,12 +124,14 @@ class GraphicsApp:
         )
 
     @_add_to_resources
-    def new_command_pool(self) -> kt.CommandPool:
+    def new_command_pool(
+        self, flags: kt.CommandPoolFlags = kt.CommandPoolFlags.TRANSIENT
+    ) -> kt.CommandPool:
         return kt.CommandPool(
             vk.vkCreateCommandPool(
                 self.context.device,
                 vk.VkCommandPoolCreateInfo(
-                    flags=vk.VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+                    flags=flags,
                     queueFamilyIndex=self.context.graphics_queue_family_index,
                 ),
                 None,
@@ -175,6 +179,12 @@ class GraphicsApp:
                 vk.VkDescriptorSetLayoutCreateInfo(pBindings=bindings),
                 None,
             )
+        )
+
+    @_add_to_resources
+    def new_fence(self) -> kt.Fence:
+        return kt.Fence(
+            vk.vkCreateFence(self.context.device, vk.VkFenceCreateInfo(), None)
         )
 
     @_add_to_resources
@@ -708,6 +718,9 @@ class GraphicsApp:
         self.context.resources.extend(shader_modules)
         return collections.namedtuple("ShaderSet", attribute_names)(*shader_modules)
 
+    def reset_command_buffer(self, command_buffer: kt.CommandBuffer) -> None:
+        vk.vkResetCommandBuffer(command_buffer, 0)
+
     def update_descriptor_sets(
         self,
         buffer_writes: typing.Optional[typing.List[kt.DescriptorBufferWrites]] = None,
@@ -774,6 +787,14 @@ class GraphicsApp:
             descriptorCopyCount=0,
             pDescriptorCopies=[],
         )
+
+    def wait_for_fences(
+        self,
+        fences: typing.List[kt.Fence],
+        wait_all: bool = True,
+        timeout: int = 0xFFFFFFFF,
+    ) -> None:
+        vk.vkWaitForFences(self.context.device, len(fences), fences, wait_all, timeout)
 
 
 @contextlib.contextmanager
