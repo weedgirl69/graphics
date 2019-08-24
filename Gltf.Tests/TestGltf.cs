@@ -45,7 +45,7 @@ namespace Gltf.Tests
     {
         public static T Log<T>(this ITestOutputHelper testOutputHelper, string formatString, T value)
         {
-            testOutputHelper.WriteLine(format: formatString, value.ToString());
+            testOutputHelper.WriteLine(format: formatString, value?.ToString());
             return value;
         }
     }
