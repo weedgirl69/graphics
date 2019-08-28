@@ -18,24 +18,24 @@ namespace Gltf.Tests
         [InlineData("%GLTF_SAMPLE_MODELS_DIR%/2.0")]
         private async Task TestModels(string directoryExpression)
         {
-            var directory = _testOutputHelper.Log("directory={0}",
-                Environment.ExpandEnvironmentVariables(directoryExpression));
+            var directory = _testOutputHelper.Log(formatString: "directory={0}",
+                value: Environment.ExpandEnvironmentVariables(directoryExpression));
             Assert.NotNull(directory);
 
-            var gltfFilesEnumerator = Directory.EnumerateFiles(directory, "*.gltf",
-                SearchOption.AllDirectories);
+            var gltfFilesEnumerator = Directory.EnumerateFiles(path: directory, searchPattern: "*.gltf",
+                searchOption: SearchOption.AllDirectories);
 
             await Task.WhenAll(from gltfPath in gltfFilesEnumerator
                 select ValidateModel(gltfPath));
         }
 
-        private async Task ValidateModel(string path)
+        private static async Task ValidateModel(string path)
         {
-            _testOutputHelper.WriteLine($"path={path}");
             var model = await Model.FromPathAsync(path);
             Assert.NotEmpty(model.NodeTransforms);
             Assert.NotEmpty(model.AccessorsBytes);
-            Assert.All(model.AccessorsBytes, action: bytes => { Assert.False(bytes.IsEmpty); });
+            Assert.All(collection: model.AccessorsBytes,
+                action: bytes => { Assert.False(bytes.IsEmpty); });
             Assert.NotEmpty(model.MeshIndexToPrimitives);
         }
     }

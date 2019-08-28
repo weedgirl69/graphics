@@ -80,7 +80,6 @@ namespace Gltf
                             var componentType = indicesAccessorJson.GetProperty("componentType").GetInt32();
                             if (componentType == 5121)
                             {
-                                
                             }
                         }
                     }
