@@ -1,6 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gltf", "Gltf\Gltf.csproj", "{382B0555-B8B0-443B-B044-4E20E350F9D0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KT", "KT\KT.csproj", "{382B0555-B8B0-443B-B044-4E20E350F9D0}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gltf.Tests", "Gltf.Tests\Gltf.Tests.csproj", "{8ADEEAB2-4555-4EDE-9DF4-C0D28EBE72CD}"
 EndProject
